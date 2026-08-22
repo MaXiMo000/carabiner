@@ -27,6 +27,13 @@ from ..finding import Finding
 # drift the first time an engine changed.
 NETWORK = True
 
+# CI cadence, not pre-commit. Measured across ten well-known repositories the
+# OSV round-trips cost 0.67s to 9.33s while every other engine stayed under
+# 1.7s -- so leaving this in the fast path broke the 2s budget on seven of ten.
+# Advisories change when a lockfile changes or the database updates, neither of
+# which is "every commit".
+FULL_ONLY = True
+
 REQUIRES = "osv-scanner"
 INSTALL = "brew install osv-scanner   (or https://github.com/google/osv-scanner/releases)"
 

@@ -17,6 +17,10 @@ def networked(name: str) -> bool:
     return bool(getattr(ALL[name], "NETWORK", False))
 
 
+def full_only(name: str) -> bool:
+    return bool(getattr(ALL[name], "FULL_ONLY", False))
+
+
 def missing(root: pathlib.Path) -> list[tuple[str, str]]:
     """[(engine, install hint)] for engines that could contribute here but can't run."""
     out = []

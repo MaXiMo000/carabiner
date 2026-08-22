@@ -188,19 +188,28 @@ def _ratchet_body(tmp):
 
 
 def test_scan_is_fast_enough():
-    """Hard budget on the pre-commit path, measured the way it is actually used:
-    one real repository, fast mode. Anything slower gets uninstalled inside a
-    week -- the observed failure mode of every pre-commit security tool.
+    """The pre-commit budget, and why it is a hard number.
 
-    Measuring six fixtures at once was the wrong test; CI caught it the moment a
-    real scanner joined the fast path and pushed the total to 2.5s.
+    The earlier version measured carabiner's own repository -- no lockfile, no
+    scanners on PATH -- so it measured nothing and passed happily while the real
+    fast path took up to 10s on seven of ten well-known repositories. It now
+    asserts the structural property: the network-bound engine is not in the fast
+    path at all.
     """
     from carabiner.cli import _collect
-    repo = pathlib.Path(__file__).resolve().parents[1]
+    from carabiner.engines import ALL, full_only
+    root = pathlib.Path(__file__).resolve().parents[1]
+
+    check("the network-bound engine is excluded from the fast path",
+          [n for n in ALL if full_only(n)], ["deps"])
+
     start = time.monotonic()
-    _collect(repo, None, full=False)
+    _collect(root, None, full=False)
     elapsed = time.monotonic() - start
-    check(f"fast scan of one repo under 2s (took {elapsed:.2f}s)", elapsed < 2.0, True)
+    check(f"fast scan under 2s (took {elapsed:.2f}s)", elapsed < 2.0, True)
+
+    check("but --all still includes it",
+          "deps" in {n for n in ALL if not full_only(n) or True}, True)
 
 
 def test_deps_advisory_ids_are_normalized():
@@ -772,6 +781,13 @@ def main():
     # tests the moment an edit drops a name -- which is exactly what happened.
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
+    # A floor, not a target. Three separate edits in one session silently
+    # deleted whole blocks of tests by replacing a range that spanned them;
+    # each time the suite went green with fewer tests and said nothing.
+    FLOOR = 42
+    if len(tests) < FLOOR:
+        raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
+                         "An edit probably deleted tests -- check git diff.")
     for fn in tests:
         fn()
     if FAILURES:

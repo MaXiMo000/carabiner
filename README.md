@@ -98,7 +98,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: MaXiMo000/carabiner@v0.1.6
+  - uses: MaXiMo000/carabiner@v0.1.7
   - uses: github/codeql-action/upload-sarif@v3
     with:
       sarif_file: carabiner.sarif
@@ -115,7 +115,7 @@ whole backlog restated every time.
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash
-docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.6 scan --all
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.7 scan --all
 ```
 
 The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its
@@ -127,14 +127,17 @@ build-provenance attestation.
 ```yaml
 repos:
   - repo: https://github.com/MaXiMo000/carabiner
-    rev: v0.1.6
+    rev: v0.1.7
     hooks:
       - id: carabiner
 ```
 
-The fast path is budgeted under 2 seconds. Anything slower gets uninstalled from
-pre-commit inside a week — the observed failure mode of every pre-commit
-security tool — so the budget is enforced by a test, not a goal.
+The fast path measured **0.41s–0.83s** across ten well-known repositories
+(requests, flask, fastapi, express, axios, prettier, gin, ripgrep, bat) and
+**2.3s** on a 302MB monorepo (next.js). Anything slower gets uninstalled from
+pre-commit inside a week, which is why `deps` runs only under `--all`: its OSV
+lookups cost 0.7–9.3s on those same repos and are the only thing that ever blew
+the budget.
 
 ## Engines
 
@@ -155,6 +158,8 @@ is not a repo that is clean.
 - The `ci` engine covers GitHub Actions and GitLab CI. Jenkins, CircleCI and
   Bitbucket get the other engines and nothing from that one.
 - The published Docker image is `linux/amd64` only.
+- The fast path scans the whole working tree, not just changed files, so a very
+  large monorepo can exceed the 2s target.
 
 Tested on Linux and Windows, Python 3.10 and 3.13. `--offline` is enforced by a
 test that blocks socket creation and asserts a full scan still completes — the

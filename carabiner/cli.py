@@ -18,6 +18,7 @@ from . import baseline, config, drill
 from .engines import ALL
 from .engines import missing as engines_missing
 from .engines import networked as engines_networked
+from .engines import full_only as engines_full_only
 from .finding import rank
 from .report import human, sarif
 
@@ -34,6 +35,10 @@ def _collect(root: pathlib.Path, only: list[str] | None, full: bool = False,
         # --offline is a promise, not a preference: an engine that reaches the
         # network does not run at all, rather than running and failing.
         if offline and engines_networked(name):
+            continue
+        # Cadence, not capability: too slow for a pre-commit hook, so it waits
+        # for --all rather than quietly making every commit take five seconds.
+        if not full and engines_full_only(name) and not only:
             continue
         if engine.available(root):
             findings.extend(engine.run(root, full))
@@ -157,6 +162,10 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     findings = _collect(root, args.engines, args.full, cfg, args.offline)
     skipped = engines_missing(root)
+    if not args.full:
+        skipped += [(n, "fast path; run `carabiner scan --all` in CI for this one")
+                    for n in ALL if engines_full_only(n)
+                    and ALL[n].available(root)]
     if args.offline:
         # One reason per engine. Telling someone both that osv-scanner is missing
         # and that they asked for --offline is two notes for one fact.
