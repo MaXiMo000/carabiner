@@ -60,8 +60,30 @@ def _tracked(root: pathlib.Path) -> list[str]:
     return [p for p in r.stdout.split("\0") if p]
 
 
-ENV_SECRET_KEYS = ("SECRET", "TOKEN", "PASSWORD", "PASSWD", "APIKEY", "API_KEY",
-                   "PRIVATE", "CREDENTIAL", "AUTH", "ACCESS_KEY", "SESSION")
+# Matched as whole tokens, never as substrings. "AUTH" inside
+# LINEAR_CMS_STATUS_WAITING_ON_AUTHOR made a Linear workflow UUID look like a
+# credential -- substring matching on a key name finds words that are not there.
+ENV_SECRET_TOKENS = {"SECRET", "TOKEN", "PASSWORD", "PASSWD", "PWD", "APIKEY",
+                     "CREDENTIAL", "CREDENTIALS", "PRIVATEKEY"}
+ENV_SECRET_PAIRS = (("API", "KEY"), ("ACCESS", "KEY"), ("SECRET", "KEY"),
+                    ("PRIVATE", "KEY"), ("AUTH", "TOKEN"), ("CLIENT", "SECRET"))
+
+
+def _secretish_key(key: str) -> bool:
+    toks = [t for t in re.split(r"[^A-Za-z0-9]+", key.upper()) if t]
+    if any(t in ENV_SECRET_TOKENS for t in toks):
+        return True
+    return any(a in toks and b in toks for a, b in ENV_SECRET_PAIRS)
+
+# Committed on purpose, as documentation. Flagging a template for containing the
+# word SECRET is the same filename-over-content mistake in yet another costume.
+ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist", ".defaults")
+
+# Values that exist to be replaced. strapi ships JWT_SECRET=tobemodified.
+TRIVIAL_VALUES = {"true", "false", "on", "off", "yes", "no", "0", "1", "none", "null"}
+
+PLACEHOLDERS = ("tobemodified", "changeme", "change_me", "your", "xxx", "todo",
+                "replace", "placeholder", "example", "dummy", "insert", "<", "...")
 
 
 def _env_has_secret(body: str) -> bool:
@@ -78,7 +100,15 @@ def _env_has_secret(body: str) -> bool:
         value = value.strip().strip("\"'")
         if not value or value.startswith("${"):
             continue
-        if any(word in key.upper() for word in ENV_SECRET_KEYS):
+        if _secretish_key(key):
+            # A secret-shaped key whose value is obviously a stand-in is not a
+            # leak; it is a instruction to the next developer.
+            # A length threshold was wrong here -- "hunter2" is seven
+            # characters and still a password. Only obvious stand-ins and
+            # boolean config are skipped.
+            if any(ph in value.lower() for ph in PLACEHOLDERS) or \
+                    value.lower() in TRIVIAL_VALUES:
+                continue
             return True
         if "://" in value and "@" in value.split("://", 1)[1].split("/")[0]:
             return True
@@ -105,6 +135,8 @@ def _key_material(path: pathlib.Path, name: pathlib.PurePosixPath) -> str | None
     """
     if name.name in KEY_NAMES:
         return "key material"
+    if name.suffix in ENV_TEMPLATE_SUFFIXES or name.name.endswith(ENV_TEMPLATE_SUFFIXES):
+        return None
     if name.name == ".env" or name.name.startswith(".env."):
         # Third time this mistake has been made in this codebase: the filename
         # is not the evidence. grafana commits eleven .env files under devenv/

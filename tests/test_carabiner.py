@@ -869,6 +869,44 @@ def test_guarded_pull_request_target_is_reported_lower():
           ["high"])
 
 
+def test_env_templates_and_placeholders_are_not_leaks():
+    """strapi ships .env.example files containing JWT_SECRET=tobemodified. Those
+    are documentation: committed on purpose, for the next developer to replace.
+    Reporting them as critical key material is the filename-over-content mistake
+    in a fourth costume."""
+    import tempfile
+    from carabiner.engines import repo as R
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        tpl = root / ".env.example"
+        tpl.write_text("HOST=0.0.0.0\nJWT_SECRET=tobemodified\n", encoding="utf-8")
+        check("a .env.example template is not a leak",
+              R._key_material(tpl, pathlib.PurePosixPath(".env.example")), None)
+
+        ph = root / "ph.env"
+        ph.write_text("API_TOKEN=changeme\n", encoding="utf-8")
+        check("nor is a placeholder value in a real .env",
+              R._key_material(ph, pathlib.PurePosixPath(".env")), None)
+
+        real = root / "real.env"
+        real.write_text("API_TOKEN=gho_9fJ2kLmQ7xRt4NpZ\n", encoding="utf-8")
+        check("but a populated token still is",
+              R._key_material(real, pathlib.PurePosixPath(".env")) is not None, True)
+
+
+def test_env_key_words_are_matched_as_tokens_not_substrings():
+    """strapi's LINEAR_CMS_STATUS_WAITING_ON_AUTHOR=<uuid> was reported as a
+    critical credential because "AUTHOR" contains "AUTH". Substring matching on
+    a key name finds words that are not there."""
+    from carabiner.engines.repo import _secretish_key
+    for key in ("LINEAR_CMS_STATUS_WAITING_ON_AUTHOR", "SORT_KEY", "PRIMARY_KEY",
+                "CACHE_KEY", "AUTHORIZED_USERS", "SESSION_TIMEOUT"):
+        check(f"{key} is not secret-shaped", _secretish_key(key), False)
+    for key in ("JWT_SECRET", "API_KEY", "DB_PASSWORD", "ACCESS_KEY_ID",
+                "GITHUB_TOKEN", "CLIENT_SECRET"):
+        check(f"{key} is secret-shaped", _secretish_key(key), True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -899,7 +937,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 46
+    FLOOR = 48
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")
