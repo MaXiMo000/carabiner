@@ -1,0 +1,9 @@
+name: greet
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Thanks for ${{ github.event.pull_request.title }}"

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+
+# secrets: never committed
+.env
+.env.*
+!.env.example
+*.pem
+*.key
