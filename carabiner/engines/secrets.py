@@ -76,34 +76,79 @@ def _parse(payload: list[dict], in_history: bool) -> list[Finding]:
     return out
 
 
+_MODE_CACHE: dict[str, bool] = {}
+
+
+def _modern(binary: str) -> bool:
+    """True if this gitleaks uses `dir`/`git` subcommands rather than `detect`.
+
+    `detect` was removed in gitleaks 8.24; assuming either CLI shape is how a
+    wrapper silently reports "no secrets found" against a binary it never
+    successfully invoked. Probed once, from --help, rather than guessed from a
+    version string.
+    """
+    if binary not in _MODE_CACHE:
+        try:
+            r = subprocess.run([binary, "--help"], capture_output=True,
+                               text=True, timeout=20, check=False)
+            _MODE_CACHE[binary] = "\n  dir " in r.stdout
+        except (OSError, subprocess.SubprocessError):
+            _MODE_CACHE[binary] = False
+    return _MODE_CACHE[binary]
+
+
+def _err(detail: str) -> Finding:
+    """A tool that failed is not a repo that is clean. Say so out loud."""
+    return Finding(
+        engine="secrets", rule="ENGINE-ERROR", severity="low", path=REQUIRES,
+        message=f"gitleaks did not run cleanly, so secrets were NOT checked: {detail}",
+        fix="run the command by hand to see the failure; do not read this scan "
+            "as evidence that the repo is clean",
+        snippet=detail[:120])
+
+
 def _scan(binary: str, root: pathlib.Path, history: bool) -> list[Finding]:
     with tempfile.TemporaryDirectory() as tmp:
         report = pathlib.Path(tmp) / "gitleaks.json"
-        cmd = [binary, "detect", "--no-banner", "--redact",
-               "--source", str(root),
-               "--report-format", "json", "--report-path", str(report)]
-        if not history:
-            cmd.append("--no-git")
+        if _modern(binary):
+            cmd = [binary, "git" if history else "dir", str(root)]
+        else:
+            cmd = [binary, "detect", "--source", str(root)]
+            if not history:
+                cmd.append("--no-git")
+        cmd += ["--no-banner", "--redact", "--exit-code", str(_LEAKS_FOUND),
+                "--report-format", "json", "--report-path", str(report)]
         try:
             # Argument list, never shell=True: a repo path is attacker-controlled
             # input in the CI threat model. Bounded time, bounded output.
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
                                check=False)
-        except (OSError, subprocess.SubprocessError):
-            return []
-        if r.returncode not in (0, _LEAKS_FOUND) or not report.exists():
+        except subprocess.TimeoutExpired:
+            return [_err("timed out after 180s")]
+        except OSError as e:
+            return [_err(str(e))]
+        if r.returncode not in (0, _LEAKS_FOUND):
+            return [_err((r.stderr or r.stdout or "").strip()[-160:]
+                         or f"exit {r.returncode}")]
+        if not report.exists():
             return []
         try:
             return _parse(json.loads(report.read_text() or "[]"), history)
-        except (json.JSONDecodeError, ValueError):
-            return []
+        except (json.JSONDecodeError, ValueError) as e:
+            return [_err(f"unparseable report: {e}")]
 
 
-def run(root: pathlib.Path) -> list[Finding]:
+def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
+    """History scanning is `full` only.
+
+    Rewalking every commit is seconds, not milliseconds, and a pre-commit hook
+    that costs seconds gets uninstalled inside a week. The working tree is
+    checked on every commit; history is checked in CI.
+    """
     binary = _bin()
     if not binary:
         return []
     findings = _scan(binary, root, history=False)
-    if (root / ".git").exists():
+    if full and (root / ".git").exists():
         findings += _scan(binary, root, history=True)
     return findings

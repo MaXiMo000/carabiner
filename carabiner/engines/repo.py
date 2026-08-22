@@ -30,7 +30,7 @@ def _tracked(root: pathlib.Path) -> list[str]:
     return [p for p in r.stdout.split("\0") if p]
 
 
-def run(root: pathlib.Path) -> list[Finding]:
+def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
     out: list[Finding] = []
 
     gitignore = root / ".gitignore"

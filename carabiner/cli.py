@@ -20,13 +20,13 @@ from .finding import rank
 from .report import human
 
 
-def _collect(root: pathlib.Path, only: list[str] | None):
+def _collect(root: pathlib.Path, only: list[str] | None, full: bool = False):
     findings = []
     for name, engine in ALL.items():
         if only and name not in only:
             continue
         if engine.available(root):
-            findings.extend(engine.run(root))
+            findings.extend(engine.run(root, full))
     return dedupe(findings)
 
 
@@ -60,13 +60,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fail-on", default="medium",
                     help="lowest severity that exits non-zero (default: medium)")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--all", action="store_true", dest="full",
+                    help="every engine, whole history. CI cadence, not pre-commit.")
     # No --token flag, deliberately: argv is world-readable via /proc and CI
     # logs echo commands. Tokens come from the environment only.
     args = ap.parse_args(argv)
 
     root = args.root.resolve()
     started = time.monotonic()
-    findings = _collect(root, args.engines)
+    findings = _collect(root, args.engines, args.full)
     skipped = engines_missing(root)
     accepted_map = baseline.load(root)
     new, accepted = baseline.partition(findings, accepted_map)

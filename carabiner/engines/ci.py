@@ -64,7 +64,7 @@ def _perm_writes(perms) -> list[str]:
     return []
 
 
-def run(root: pathlib.Path) -> list[Finding]:
+def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
     out: list[Finding] = []
     for wf in sorted((root / WORKFLOWS).glob("*.y*ml")):
         rel = str(wf.relative_to(root))
