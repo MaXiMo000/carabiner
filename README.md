@@ -98,7 +98,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: MaXiMo000/carabiner@v0.1.8
+  - uses: MaXiMo000/carabiner@v0.1.9
   - uses: github/codeql-action/upload-sarif@v3
     with:
       sarif_file: carabiner.sarif
@@ -115,7 +115,7 @@ whole backlog restated every time.
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash
-docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.8 scan --all
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.9 scan --all
 ```
 
 The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its
@@ -127,7 +127,7 @@ build-provenance attestation.
 ```yaml
 repos:
   - repo: https://github.com/MaXiMo000/carabiner
-    rev: v0.1.8
+    rev: v0.1.9
     hooks:
       - id: carabiner
 ```

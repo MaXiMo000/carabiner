@@ -774,6 +774,41 @@ def test_registry_config_is_only_a_finding_when_it_holds_a_credential():
               "a registry credential")
 
 
+def test_injection_rule_distinguishes_attacker_input_from_repo_state():
+    """The three real CI002 hits across 33 well-known repositories -- two of
+    which the first version got wrong. A HIGH finding that is wrong two times in
+    three is worse than no rule at all.
+    """
+    import tempfile
+    from carabiner.engines import ci as ci_engine
+
+    def scan_run(script):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "w.yml").write_text(
+                "on: push\npermissions: {contents: read}\njobs:\n  j:\n"
+                "    runs-on: ubuntu-latest\n    steps:\n"
+                f"      - run: {script}\n", encoding="utf-8")
+            return [f for f in ci_engine.run(root) if f.rule == "CI002"]
+
+    # tokio: the PR's *target* branch, in the maintainer's own repo.
+    check("base.ref is repo state, not attacker input",
+          scan_run('echo "${{ github.event.pull_request.base.ref }}"'), [])
+    # nlohmann/json: a GitHub username cannot contain a shell metacharacter.
+    check("a username is not injectable",
+          scan_run("echo ${{ github.event.pull_request.user.login }}"), [])
+    # nvm: a free-form workflow_dispatch input, unquoted.
+    dispatch = scan_run('echo "${{ github.event.inputs.ref }}"')
+    check("a dispatch input is a real sink", [f.rule for f in dispatch], ["CI002"])
+    check("but rated below anonymous input", dispatch[0].severity, "medium")
+    # the classic: a pull request title.
+    title = scan_run('echo "${{ github.event.pull_request.title }}"')
+    check("a PR title is the canonical injection", [f.severity for f in title], ["high"])
+    check("and so is head_ref",
+          [f.severity for f in scan_run('echo "${{ github.head_ref }}"')], ["high"])
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -804,7 +839,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 43
+    FLOOR = 44
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

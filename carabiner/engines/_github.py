@@ -22,11 +22,36 @@ WORKFLOWS = ".github/workflows"
 # controls the repository.
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
-# Attacker-controlled context values. A PR title is not a string, it is input.
+# Attacker-controlled context values, named explicitly rather than pattern-matched.
+#
+# The first version matched anything under github.event ending in title/body/ref
+# and so on. Across 33 well-known repositories that produced three findings and
+# two were wrong: tokio's `pull_request.base.ref` is the *target* branch in the
+# maintainer's own repo, and nlohmann/json's `pull_request.user.login` is a
+# GitHub username, whose charset cannot carry a shell metacharacter. Only the
+# fields an outsider can actually put arbitrary text into belong here.
+#
+# Sources of free-form text from an anonymous contributor:
+_ANON = (
+    "github.event.issue.title", "github.event.issue.body",
+    "github.event.pull_request.title", "github.event.pull_request.body",
+    "github.event.comment.body", "github.event.review.body",
+    "github.event.review_comment.body",
+    "github.event.discussion.title", "github.event.discussion.body",
+    "github.event.pull_request.head.ref", "github.event.pull_request.head.label",
+    "github.event.pull_request.head.repo.default_branch",
+    "github.event.pull_request.head.repo.description",
+    "github.event.head_commit.message", "github.event.head_commit.author.name",
+    "github.event.head_commit.author.email",
+    "github.event.pages", "github.head_ref",
+)
+# Free-form, but only from someone who can already trigger the workflow. Real,
+# and a lower bar to reach than the list above -- reported one level down.
+_DISPATCH = "github.event.inputs."
+
 _INJECTABLE = re.compile(
-    r"\$\{\{\s*(github\.event\.[a-z_.]*"
-    r"(title|body|message|name|label|ref|email|login)"
-    r"|github\.head_ref)", re.I)
+    "|".join(re.escape(x) for x in _ANON).replace(r"\.", r"\s*\.\s*"), re.I)
+_INJECTABLE_DISPATCH = re.compile(re.escape(_DISPATCH), re.I)
 
 
 def available(root: pathlib.Path) -> bool:
@@ -125,11 +150,21 @@ def run(root: pathlib.Path) -> list[Finding]:
                 out.append(Finding(
                     "ci", "CI002", "high", rel,
                     f"job '{job_name}' interpolates attacker-controlled context "
-                    "directly into a `run:` block -- a crafted PR title executes "
-                    "as shell on your runner",
-                    fix="pass it through `env:` and reference \"$VAR\" in the "
-                        "script; the value is then data, not code",
+                    "directly into a `run:` block -- a crafted PR title or branch "
+                    "name executes as shell on your runner",
+                    fix="pass it through `env:` and reference \"$VAR\" quoted in "
+                        "the script; the value is then data, not code",
                     snippet=m.group(0)))
+            elif _INJECTABLE_DISPATCH.search(script):
+                d = _INJECTABLE_DISPATCH.search(script)
+                out.append(Finding(
+                    "ci", "CI002", "medium", rel,
+                    f"job '{job_name}' interpolates a workflow_dispatch input "
+                    "into a `run:` block -- free-form text, though it takes "
+                    "someone who can already trigger the workflow",
+                    fix="pass it through `env:` and reference \"$VAR\" quoted",
+                    snippet=script[d.start():script.find("}}", d.start()) + 2
+                                   if "}}" in script[d.start():] else d.start() + 40]))
 
             # CI003 -- mutable action references.
             uses = str(step.get("uses", ""))
