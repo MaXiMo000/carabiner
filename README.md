@@ -115,7 +115,7 @@ whole backlog restated every time.
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash
-docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:v0.1.4 scan --all
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.4 scan --all
 ```
 
 The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its

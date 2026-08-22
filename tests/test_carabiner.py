@@ -677,6 +677,25 @@ def test_no_text_io_relies_on_the_locale_encoding():
     check("every text read/write names its encoding", offenders, [])
 
 
+def test_documented_container_tag_actually_exists():
+    """docker/metadata-action's {{version}} strips the leading v, so the image is
+    published as 0.1.4 while the git tag is v0.1.4. The README documented the git
+    tag and named an image that was never pushed -- and the check I used to
+    verify it queried the same wrong tag, so it agreed with itself.
+    """
+    import re as _re
+    from carabiner import __version__
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for name in ("README.md", "site/index.html"):
+        path = root / name
+        if not path.exists():
+            continue
+        for tag in _re.findall(r"ghcr\.io/\S*?carabiner:(\S+?)[\s`<]", path.read_text(encoding="utf-8")):
+            check(f"{name} container tag has no v prefix", tag.startswith("v"), False)
+            check(f"{name} container tag matches the release",
+                  tag in (__version__, "latest"), True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
