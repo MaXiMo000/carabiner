@@ -98,7 +98,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: MaXiMo000/carabiner@v0.1.4
+  - uses: MaXiMo000/carabiner@v0.1.5
   - uses: github/codeql-action/upload-sarif@v3
     with:
       sarif_file: carabiner.sarif
@@ -115,7 +115,7 @@ whole backlog restated every time.
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash
-docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.4 scan --all
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.5 scan --all
 ```
 
 The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its
@@ -127,7 +127,7 @@ build-provenance attestation.
 ```yaml
 repos:
   - repo: https://github.com/MaXiMo000/carabiner
-    rev: v0.1.4
+    rev: v0.1.5
     hooks:
       - id: carabiner
 ```
@@ -154,7 +154,6 @@ is not a repo that is clean.
 
 - The `ci` engine covers GitHub Actions and GitLab CI. Jenkins, CircleCI and
   Bitbucket get the other engines and nothing from that one.
-- Only top-level dependency manifests are read; monorepo subprojects are not.
 - The published Docker image is `linux/amd64` only.
 
 Tested on Linux and Windows, Python 3.10 and 3.13. `--offline` is enforced by a

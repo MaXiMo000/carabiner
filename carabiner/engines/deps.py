@@ -15,6 +15,7 @@ reported twice -- which costs trust faster than a missed finding.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import shutil
 
@@ -50,11 +51,34 @@ def _bin() -> str | None:
     return shutil.which(REQUIRES)
 
 
+# Directories that are never worth walking for a manifest and are the reason a
+# naive recursive glob is slow.
+SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "env", "vendor", "dist",
+             "build", "target", "__pycache__", ".tox", ".mypy_cache", ".next"}
+
+
+def manifest_dirs(root: pathlib.Path, max_depth: int = 3) -> list[str]:
+    """Bounded walk for lockfiles, pruning the heavy directories.
+
+    Top level only was wrong, and wrong in the worst way: osv-scanner is invoked
+    with -r and recurses happily, so a repo with backend/package-lock.json and
+    frontend/package-lock.json had its dependencies skipped entirely -- and this
+    gate was the only thing stopping the scan. Nothing was reported, so there was
+    no way to tell dependencies had not been checked.
+    """
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel = pathlib.Path(dirpath).relative_to(root)
+        depth = 0 if str(rel) == "." else len(rel.parts)
+        dirnames[:] = [] if depth >= max_depth else [
+            d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        if any(f in MANIFESTS for f in filenames):
+            found.append(str(rel))
+    return found
+
+
 def has_manifest(root: pathlib.Path) -> bool:
-    # ponytail: top level only. A recursive glob here runs on every pre-commit
-    # invocation and blows the 2s budget on a monorepo. Nested manifests come
-    # with monorepo support in Phase 5, behind --all.
-    return any((root / m).exists() for m in MANIFESTS)
+    return bool(manifest_dirs(root))
 
 
 def available(root: pathlib.Path) -> bool:

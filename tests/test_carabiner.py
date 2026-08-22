@@ -696,6 +696,36 @@ def test_documented_container_tag_actually_exists():
                   tag in (__version__, "latest"), True)
 
 
+def test_deps_finds_manifests_in_subprojects():
+    """Found on the first repo I had not written myself: backend/ and frontend/
+    each had a package-lock.json, the engine read only the top level, and so it
+    scanned nothing and said nothing. Silence indistinguishable from 'clean' is
+    the exact failure this tool exists to complain about."""
+    import tempfile
+    from carabiner.engines import deps
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        for sub in ("backend", "frontend"):
+            (root / sub).mkdir()
+            (root / sub / "package-lock.json").write_text("{}", encoding="utf-8")
+        check("subproject lockfiles are found", sorted(deps.manifest_dirs(root)),
+              ["backend", "frontend"])
+        check("so the engine has something to do", deps.has_manifest(root), True)
+
+        # ...but not by walking into the places that make recursion slow.
+        heavy = root / "node_modules" / "pkg"
+        heavy.mkdir(parents=True)
+        (heavy / "package-lock.json").write_text("{}", encoding="utf-8")
+        check("node_modules is not walked",
+              any("node_modules" in d for d in deps.manifest_dirs(root)), False)
+
+        deep = root / "a" / "b" / "c" / "d"
+        deep.mkdir(parents=True)
+        (deep / "package-lock.json").write_text("{}", encoding="utf-8")
+        check("and the walk is depth-bounded",
+              any(d.startswith("a") for d in deps.manifest_dirs(root)), False)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
