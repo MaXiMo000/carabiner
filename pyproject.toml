@@ -4,15 +4,37 @@
 # name differing from the command it installs is ordinary (python-dateutil
 # installs `dateutil`).
 name = "carabiner-sec"
-version = "0.1.3"
+version = "0.1.4"
 description = "Make any repo secure by default, keep it that way, and prove the controls fire."
 requires-python = ">=3.10"
+# Without this the PyPI page is blank, which is the first thing anyone
+# evaluating a security tool actually looks at.
+readme = "README.md"
+# PEP 639 SPDX form. The TOML-table spelling and the License::
+# classifier are both deprecated, and a build that emits deprecation
+# warnings is not a great look on a tool about hygiene.
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["security", "sast", "secrets", "sarif", "pre-commit",
+            "github-actions", "gitlab-ci", "devsecops", "supply-chain"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
 # PyYAML and the standard library. That is the whole list, on purpose: every
 # dependency is a package a security auditor now implicitly vouches for.
 dependencies = ["PyYAML>=6"]
 
 urls.Homepage = "https://maximo000.github.io/carabiner/"
 urls.Source = "https://github.com/MaXiMo000/carabiner"
+urls.Issues = "https://github.com/MaXiMo000/carabiner/issues"
+urls.Changelog = "https://github.com/MaXiMo000/carabiner/releases"
 
 [project.scripts]
 carabiner = "carabiner.cli:main"
@@ -26,5 +48,5 @@ cb = "carabiner.cli:main"
 include = ["carabiner*"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
