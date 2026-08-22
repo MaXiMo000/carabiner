@@ -17,6 +17,38 @@ from ..finding import Finding
 
 WORKFLOWS = ".github/workflows"
 
+# Who published the action matters more than whether it is pinned. GitHub
+# tag-protects its own action repos; a stranger's `@master` can be repointed at
+# new code tonight. Treating those two identically produced 1470 findings across
+# 60 repositories, 49% of everything the tool reported, and almost none of it
+# worth anyone's afternoon.
+FIRST_PARTY_OWNERS = {"actions", "github"}
+
+# Classified by shape, not by a list of branch names. A hardcoded list of
+# main/master/develop missed `stable`, `nightly`, `cargo-hack` and `wasm-pack`
+# in tokio alone -- all branches of the actions they reference, all moving.
+_VERSION_TAG = re.compile(r"^v?\d+(\.\d+)*$", re.I)
+
+
+def _pin_severity(uses: str, ref: str) -> tuple[str, str]:
+    """-> (severity, why).
+
+    A moving branch from a third party is the finding worth acting on. A version
+    tag is what nearly every project uses and flagging it at any real severity
+    buries the branch refs that matter.
+    """
+    first_party = uses.split("/", 1)[0].lower() in FIRST_PARTY_OWNERS
+    versioned = bool(_VERSION_TAG.match(ref))
+    if not versioned and not first_party:
+        return "medium", ("tracks a moving branch in someone else's repository "
+                          "-- what runs here can change tonight without a diff "
+                          "on your side")
+    if not versioned:
+        return "low", "tracks a moving branch rather than a fixed commit"
+    return "info", ("a version tag; pin to a SHA for full supply-chain hygiene, "
+                    "though the owner would have to move the tag deliberately")
+
+
 # A pinned action is 40 hex characters. Everything else -- tags, branches,
 # `@main`, `@v4` -- is mutable and can be repointed at new code by whoever
 # controls the repository.
@@ -180,16 +212,18 @@ def run(root: pathlib.Path) -> list[Finding]:
             if uses and not uses.startswith(("./", "docker://")):
                 ref = uses.partition("@")[2]
                 if not ref or not _SHA.match(ref):
+                    sev, why = _pin_severity(uses, ref)
                     out.append(Finding(
-                        "ci", "CI003", "medium", rel,
-                        f"action `{uses}` is pinned to a mutable ref -- whoever "
-                        "controls that repo can repoint the tag at new code",
+                        "ci", "CI003", sev, rel,
+                        f"action `{uses}` is not pinned to a commit -- {why}",
                         fix="pin to a full 40-character commit SHA and let "
                             "Dependabot bump it",
-                        # Job name is part of the snippet so two jobs pinning the
-                        # same action stay two findings -- they are two places to
-                        # fix, and collapsing them hides one.
-                        snippet=f"{job_name}: {uses}"))
+                        # Deliberately NOT keyed on the job: one unpinned action
+                        # reference is one decision, however many steps use it.
+                        # tokio reaches dtolnay/rust-toolchain@stable 34 times in
+                        # a single workflow, and 34 identical lines is a wall,
+                        # not a report. Dedup in the CLI collapses these.
+                        snippet=uses))
 
         # CI007 -- anyone's PR executes on your hardware.
         for job_name, job in (doc.get("jobs") or {}).items():

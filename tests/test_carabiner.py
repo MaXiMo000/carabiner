@@ -74,9 +74,11 @@ def test_duplicate_findings_collapse():
     in different jobs must both survive. Found by dogfooding on a real repo."""
     from carabiner.cli import _collect
     got = _collect(FIXTURES / "ci_unpinned_action", None)
+    # No job prefix any more: one unpinned reference is one decision, however
+    # many jobs use it. Distinct actions still stay distinct.
     check("distinct unpinned actions both reported",
           sorted(f.snippet for f in got),
-          ["build: actions/checkout@v4", "build: some-vendor/deploy@main"])
+          ["actions/checkout@v4", "some-vendor/deploy@main"])
     check("no duplicate fingerprints survive collection",
           len({f.fingerprint for f in got}), len(got))
 
@@ -907,6 +909,69 @@ def test_env_key_words_are_matched_as_tokens_not_substrings():
         check(f"{key} is secret-shaped", _secretish_key(key), True)
 
 
+def test_action_pinning_severity_is_shaped_by_ref_and_publisher():
+    """CI003 was 1470 of 3017 findings across 60 repos -- 49% of everything, and
+    almost none of it worth an afternoon. Two things were wrong: every ref that
+    was not a SHA counted the same, and a hardcoded branch list missed `stable`,
+    `nightly` and `cargo-hack`, which are branches of the actions tokio uses."""
+    from carabiner.engines._github import _pin_severity
+    cases = [
+        # third-party moving branch: the one that can change tonight
+        ("dtolnay/rust-toolchain", "stable", "medium"),
+        ("dtolnay/rust-toolchain", "master", "medium"),
+        ("taiki-e/install-action", "cargo-hack", "medium"),
+        ("some-vendor/deploy", "main", "medium"),
+        # first-party moving branch: lower, GitHub controls the repo
+        ("actions/checkout", "main", "low"),
+        # version tags: what nearly everyone uses, informational
+        ("actions/checkout", "v4", "info"),
+        ("Swatinem/rust-cache", "v2", "info"),
+        ("some/action", "1.2.3", "info"),
+    ]
+    for uses, ref, want in cases:
+        got, _why = _pin_severity(uses, ref)
+        check(f"{uses}@{ref} -> {want}", got, want)
+
+
+def test_one_unpinned_action_reference_is_one_finding():
+    """tokio reaches dtolnay/rust-toolchain@stable 34 times in a single workflow.
+    That is one decision, and 34 identical lines is a wall, not a report."""
+    import tempfile
+    from carabiner.cli import _collect
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / ".github" / "workflows").mkdir(parents=True)
+        steps = "".join("      - uses: vendor/act@stable\n" for _ in range(12))
+        (root / ".github" / "workflows" / "w.yml").write_text(
+            "on: push\npermissions: {contents: read}\njobs:\n  j:\n"
+            f"    runs-on: ubuntu-latest\n    steps:\n{steps}", encoding="utf-8")
+        got = [f for f in _collect(root, ["ci"]) if f.rule == "CI003"]
+        check("twelve identical references collapse to one finding", len(got), 1)
+
+
+def test_informational_findings_are_hidden_but_counted():
+    """Hidden must never mean disappeared."""
+    import io, contextlib, tempfile
+    from carabiner import cli
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / ".github" / "workflows").mkdir(parents=True)
+        (root / ".github" / "workflows" / "w.yml").write_text(
+            "on: push\npermissions: {contents: read}\njobs:\n  j:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n"
+            "      - uses: actions/checkout@v4\n", encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli.main(["scan", "--root", str(root)])
+        out = buf.getvalue()
+        check("the informational finding is not listed", "CI003" in out, False)
+        check("but its count is shown", "informational" in out, True)
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            cli.main(["scan", "--root", str(root), "--info"])
+        check("and --info lists it", "CI003" in buf2.getvalue(), True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -937,7 +1002,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 48
+    FLOOR = 51
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

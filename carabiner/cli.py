@@ -128,6 +128,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", dest="full",
                     help="every engine, whole history. CI cadence, not pre-commit.")
     ap.add_argument("--dry-run", action="store_true", help="init: write nothing")
+    ap.add_argument("--info", action="store_true",
+                    help="also list informational findings, which are hidden by "
+                         "default and only counted")
     ap.add_argument("--offline", action="store_true",
                     help="make no network calls; API drills report as unverified")
     ap.add_argument("--json", action="store_true")
@@ -202,6 +205,15 @@ def main(argv: list[str] | None = None) -> int:
                  if gone else ""))
         return 0
 
+    # Informational findings are counted, never listed unless asked for. A wall
+    # of things nobody will act on is how a scanner gets uninstalled; keeping the
+    # count stops "hidden" from becoming "disappeared".
+    hidden = 0
+    if not args.info:
+        before = len(new)
+        new = [f for f in new if rank(f.severity) > rank("info")]
+        hidden = before - len(new)
+
     gone = baseline.fixed(findings, accepted_map)
     if args.summary:
         # Deliberately terse. A bot that restates the entire backlog on every PR
@@ -233,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
                           "accepted": len(accepted)}, indent=2))
     else:
         print(human.render(new, accepted, time.monotonic() - started, skipped,
-                           len(gone)))
+                           len(gone), hidden))
 
     if args.fail_on:
         worst = max((rank(f.severity) for f in new), default=-1)

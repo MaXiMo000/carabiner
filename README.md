@@ -81,6 +81,7 @@ carabiner init          # detect, configure, ratchet. Once per repo.
 carabiner scan          # what is new. Pre-commit and CI. Under 2s.
 carabiner scan --all    # every engine, whole history. CI cadence.
 carabiner drill         # prove the controls fire. After init, and weekly.
+carabiner scan --info   # also list informational findings (hidden by default).
 carabiner debt          # what you carry, since when, and what is overdue.
 carabiner lock --expires 90   # accept it, but only for 90 days.
 ```
@@ -98,7 +99,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: MaXiMo000/carabiner@v0.1.11
+  - uses: MaXiMo000/carabiner@v0.1.12
   - uses: github/codeql-action/upload-sarif@v3
     with:
       sarif_file: carabiner.sarif
@@ -115,7 +116,7 @@ whole backlog restated every time.
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash
-docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.11 scan --all
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.12 scan --all
 ```
 
 The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its
@@ -127,7 +128,7 @@ build-provenance attestation.
 ```yaml
 repos:
   - repo: https://github.com/MaXiMo000/carabiner
-    rev: v0.1.11
+    rev: v0.1.12
     hooks:
       - id: carabiner
 ```
@@ -148,6 +149,13 @@ the budget.
 | `repo` | REPO001 `.gitignore` gaps · REPO002 committed key material · REPO003 no disclosure policy · REPO004 credentials in git remotes | nothing |
 | `secrets` | working tree every commit; history behind `--all` and one severity higher, because deleting the file is not remediation | `gitleaks` |
 | `deps` | lockfile advisories across PyPI, npm, Go, Maven, crates.io and more; ids normalised to CVE so two scanners cannot report one problem twice | `osv-scanner` |
+
+**Severity is calibrated against real repositories.** Across 60 public projects
+the default output is a median of **9 findings per repo**; another ~800
+informational ones are counted but not listed until you ask with `--info`. A
+version tag on an action is informational; a *moving branch* in someone else's
+repository is not. A private key under `tests/` is reported lower than one in
+`config/`.
 
 A missing scanner degrades to an install hint, never a crash. And a scanner that
 *fails* produces a finding saying the check did not happen — a tool that errors

@@ -21,6 +21,7 @@ import tempfile
 from . import _tool
 
 from ..finding import Finding
+from .repo import _is_fixture
 
 REQUIRES = "gitleaks"
 INSTALL = "brew install gitleaks   (or https://github.com/gitleaks/gitleaks/releases)"
@@ -61,7 +62,11 @@ def _parse(payload: list[dict], in_history: bool) -> list[Finding]:
         out.append(Finding(
             engine="secrets",
             rule=f"SECRET-{rule}",
-            severity="critical" if in_history else "high",
+            # A match under tests/ or examples/ is usually a fixture. Still
+            # reported -- real keys do land there -- one level down.
+            severity=("critical" if in_history else "high")
+                     if not _is_fixture(pathlib.PurePosixPath(path).parts[:-1])
+                     else ("high" if in_history else "medium"),
             path=path,
             line=int(line) if isinstance(line, int) else None,
             message=(str(item.get("Description") or "credential detected")

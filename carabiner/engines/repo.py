@@ -177,7 +177,9 @@ def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
     missing = [p for p in MUST_IGNORE if p not in body]
     if missing:
         out.append(Finding(
-            "repo", "REPO001", "medium", ".gitignore",
+            # Fires on essentially every repository, so it carries no signal on
+            # its own. Informational: real when a key later lands, noise today.
+            "repo", "REPO001", "info", ".gitignore",
             f"not ignored: {', '.join(missing)} -- one `git add .` away from a "
             "credential in history",
             fix="add them to .gitignore; a secret removed in a later commit is "
@@ -201,7 +203,7 @@ def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
 
     if not any((root / n).exists() for n in ("SECURITY.md", ".github/SECURITY.md")):
         out.append(Finding(
-            "repo", "REPO003", "low", "SECURITY.md",
+            "repo", "REPO003", "info", "SECURITY.md",
             "no SECURITY.md -- there is no documented way to report a "
             "vulnerability to you privately",
             fix="add SECURITY.md with a contact address and a disclosure window",
