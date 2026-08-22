@@ -15,7 +15,9 @@ carabiner reads your repository and, in `drill` mode, uses a GitHub token.
 
 - **No telemetry, no update check, no analytics.** Ever.
 - Findings never leave the machine unless you pipe them somewhere.
-- `--offline` disables every network call and is tested to open zero sockets.
+- `--offline` disables every network call. Engines that reach out are not run
+  at all, and a test blocks socket creation outright and asserts a full scan
+  still completes — the claim is enforced, not documented.
 - Secrets are redacted structurally: `Finding.snippet` is scrubbed in
   `__post_init__`, so a Finding holding a raw credential cannot be constructed.
   See `tests/test_carabiner.py::test_redaction_is_structural`.

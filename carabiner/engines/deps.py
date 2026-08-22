@@ -21,6 +21,11 @@ import shutil
 from . import _tool
 from ..finding import Finding
 
+# osv-scanner queries the OSV database, so this engine cannot run under
+# --offline. Declared here rather than listed in the CLI, where it would
+# drift the first time an engine changed.
+NETWORK = True
+
 REQUIRES = "osv-scanner"
 INSTALL = "brew install osv-scanner   (or https://github.com/google/osv-scanner/releases)"
 

@@ -164,11 +164,14 @@ def test_secrets_integration_when_gitleaks_present():
               any(body[:40] in f.snippet for f in got), False)
 
 
-def test_ratchet(tmp=pathlib.Path("/tmp/carabiner-ratchet-test")):
+def test_ratchet():
     """Adoption in a legacy repo: accept what exists, fail only on what is new."""
-    import shutil
-    shutil.rmtree(tmp, ignore_errors=True)
-    tmp.mkdir(parents=True)
+    import tempfile
+    with tempfile.TemporaryDirectory() as _tmp:
+        _ratchet_body(pathlib.Path(_tmp))
+
+
+def _ratchet_body(tmp):
     findings = scan(FIXTURES / "ci_unpinned_action")
     check("fixture has findings to accept", len(findings) > 0, True)
 
@@ -182,7 +185,6 @@ def test_ratchet(tmp=pathlib.Path("/tmp/carabiner-ratchet-test")):
     fresh = Finding("ci", "CI001", "critical", "new.yml", "brand new")
     new2, _ = baseline.partition(findings + [fresh], baseline.load(tmp))
     check("a new finding still fails", [f.rule for f in new2], ["CI001"])
-    shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_scan_is_fast_enough():
@@ -590,15 +592,45 @@ def test_version_is_declared_once_and_agrees():
           ".dev" in declared and (root / ".git").exists() is False, False)
 
 
+def test_offline_opens_no_sockets():
+    """SECURITY.md promises --offline makes no network calls. A promise in a
+    security tool's own policy has to be enforced, not documented -- so this
+    blocks socket creation outright and asserts a full scan still completes."""
+    import socket
+    from carabiner.cli import _collect
+    real = socket.socket
+
+    class Blocked(socket.socket):
+        def __init__(self, *a, **k):
+            raise AssertionError("--offline opened a socket")
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    socket.socket = Blocked
+    try:
+        got = _collect(root, None, full=True, offline=True)
+        check("a full offline scan completes without touching the network",
+              isinstance(got, list), True)
+    finally:
+        socket.socket = real
+
+    from carabiner.engines import networked
+    check("the engine that needs the network is the one declared networked",
+          [n for n in ("ci", "repo", "secrets", "deps") if networked(n)], ["deps"])
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
-    import stat, tempfile
+    import os, stat, tempfile
     from carabiner.engines import secrets
     with tempfile.TemporaryDirectory() as tmp:
-        fake = pathlib.Path(tmp) / "gitleaks"
-        fake.write_text("#!/bin/sh\necho 'unknown command \"detect\"' >&2\nexit 2\n")
-        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        if os.name == "nt":
+            fake = pathlib.Path(tmp) / "gitleaks.bat"
+            fake.write_text("@echo unknown command 1>&2\r\n@exit /b 2\r\n")
+        else:
+            fake = pathlib.Path(tmp) / "gitleaks"
+            fake.write_text("#!/bin/sh\necho 'unknown command' >&2\nexit 2\n")
+            fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         got = secrets._scan(str(fake), pathlib.Path(tmp), history=False)
     check("a failing scanner produces a finding, not silence",
           [f.rule for f in got], ["ENGINE-ERROR"])

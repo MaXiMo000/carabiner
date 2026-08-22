@@ -17,18 +17,23 @@ import time
 from . import baseline, config, drill
 from .engines import ALL
 from .engines import missing as engines_missing
+from .engines import networked as engines_networked
 from .finding import rank
 from .report import human, sarif
 
 
 def _collect(root: pathlib.Path, only: list[str] | None, full: bool = False,
-             cfg: config.Config | None = None):
+             cfg: config.Config | None = None, offline: bool = False):
     cfg = cfg or config.Config()
     findings = []
     for name, engine in ALL.items():
         if only and name not in only:
             continue
         if not cfg.enabled(name):
+            continue
+        # --offline is a promise, not a preference: an engine that reaches the
+        # network does not run at all, rather than running and failing.
+        if offline and engines_networked(name):
             continue
         if engine.available(root):
             findings.extend(engine.run(root, full))
@@ -150,8 +155,14 @@ def main(argv: list[str] | None = None) -> int:
         return cfg.gate(found)
 
     started = time.monotonic()
-    findings = _collect(root, args.engines, args.full, cfg)
+    findings = _collect(root, args.engines, args.full, cfg, args.offline)
     skipped = engines_missing(root)
+    if args.offline:
+        # One reason per engine. Telling someone both that osv-scanner is missing
+        # and that they asked for --offline is two notes for one fact.
+        skipped = [(n, hint) for n, hint in skipped if not engines_networked(n)]
+        skipped += [(n, "--offline was requested; this engine needs the network")
+                    for n in ALL if engines_networked(n)]
     accepted_map = baseline.load(root)
     new, accepted = baseline.partition(findings, accepted_map)
 

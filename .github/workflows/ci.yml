@@ -12,10 +12,14 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows was listed as untested for long enough. It is the platform where
+    # path handling and subprocess invocation break, which is most of what the
+    # wrapped engines do.
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         # 3.10 is the floor declared in pyproject; test the floor, not just today.
         python: ["3.10", "3.13"]
     steps:
@@ -26,16 +30,18 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: pip install PyYAML
-      # The secrets engine shells out to gitleaks. Installing it here is what
-      # keeps the subprocess path from shipping unverified -- the integration
-      # test skips silently when the binary is absent.
+      # The wrapped scanners ship Linux binaries. Their integration tests skip
+      # themselves when the binary is absent, so Windows exercises everything
+      # else rather than pretending to cover them.
       - name: Install gitleaks
+        if: runner.os == 'Linux'
         run: |
           curl -sSfL -o /tmp/gitleaks.tar.gz \
             https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz
           tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
           gitleaks version
       - name: Install osv-scanner
+        if: runner.os == 'Linux'
         run: |
           curl -sSfL -o /usr/local/bin/osv-scanner \
             https://github.com/google/osv-scanner/releases/download/v2.5.1/osv-scanner_linux_amd64

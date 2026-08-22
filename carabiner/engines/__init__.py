@@ -13,6 +13,10 @@ from . import ci, deps, repo, secrets
 ALL = {"ci": ci, "repo": repo, "secrets": secrets, "deps": deps}
 
 
+def networked(name: str) -> bool:
+    return bool(getattr(ALL[name], "NETWORK", False))
+
+
 def missing(root: pathlib.Path) -> list[tuple[str, str]]:
     """[(engine, install hint)] for engines that could contribute here but can't run."""
     out = []
