@@ -754,6 +754,26 @@ def test_deps_scores_come_from_the_right_advisory():
     check("the 2.1 advisory is not", got["DEP-GHSA-bbb"], "low")
 
 
+def test_registry_config_is_only_a_finding_when_it_holds_a_credential():
+    """13 false positives across 33 well-known repos, every one a .npmrc holding
+    nothing but `ignore-scripts=true`. The filename was treated as proof."""
+    import tempfile
+    from carabiner.engines import repo as repo_engine
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        plain = root / ".npmrc"
+        plain.write_text("ignore-scripts=true\npackage-lock=false\n", encoding="utf-8")
+        check("plain registry config is not key material",
+              repo_engine._key_material(plain, pathlib.PurePosixPath(".npmrc")), None)
+
+        real = root / "with-token" / ".npmrc"
+        real.parent.mkdir()
+        real.write_text("//registry.npmjs.org/:_authToken=abc123\n", encoding="utf-8")
+        check("but one carrying an auth token is",
+              repo_engine._key_material(real, pathlib.PurePosixPath(".npmrc")),
+              "a registry credential")
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -784,7 +804,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 42
+    FLOOR = 43
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

@@ -25,7 +25,15 @@ PRIVATE_MARKERS = ("PRIVATE KEY-----", "BEGIN OPENSSH PRIVATE KEY",
 FIXTURE_HINTS = ("test", "tests", "__tests__", "fixture", "fixtures", "spec",
                  "example", "examples", "sample", "samples", "mock", "mocks",
                  "testdata", "e2e")
-KEY_NAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", ".npmrc", ".pypirc"}
+KEY_NAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
+
+# Registry config files hold a credential only sometimes. Across 33 well-known
+# repositories every committed .npmrc was plain configuration -- ignore-scripts,
+# package-lock=false -- so treating the filename as proof produced 13 false
+# positives and nothing else.
+CREDENTIAL_CONFIGS = {".npmrc", ".pypirc", ".netrc"}
+CREDENTIAL_KEYS = ("_authToken", "_auth=", "_auth ", "_password", "password =",
+                   "password=", "login ", "machine ")
 MUST_IGNORE = (".env", "*.pem", "*.key")
 
 
@@ -61,6 +69,13 @@ def _key_material(path: pathlib.Path, name: pathlib.PurePosixPath) -> str | None
     """
     if name.name == ".env" or name.name in KEY_NAMES:
         return "key material"
+    if name.name in CREDENTIAL_CONFIGS:
+        try:
+            body = path.read_text(encoding="utf-8", errors="replace")[:4000]
+        except OSError:
+            return None
+        return ("a registry credential"
+                if any(k in body for k in CREDENTIAL_KEYS) else None)
     if name.suffix in OPAQUE_KEYSTORES:
         return "a keystore"
     if name.suffix not in MAYBE_KEY_SUFFIXES:
