@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>carabiner — configured is not the same as working</title>
+<meta name="description" content="Make any repo secure by default, keep it that way with a ratchet, then attack your own defences to prove they fire.">
+<meta property="og:title" content="carabiner">
+<meta property="og:description" content="Most security tools check your configuration. carabiner checks your defences by trying to get past them.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --alu:#dcdeda; --alu-lo:#c4c8c3; --alu-hi:#eef0ec;
+  --gun:#23272b; --gun-lo:#161a1d; --slate:#5b636a;
+  --orange:#e2571f; --blue:#1e4fa3;
+  --rule:rgba(35,39,43,.14);
+  --stamp:'Archivo',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--alu); color:var(--gun);
+  font-family:var(--stamp); font-variation-settings:'wdth' 100,'wght' 400;
+  font-size:17px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  /* brushed metal: fine vertical grain, almost subliminal */
+  background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.35) 0 1px,transparent 1px 3px);
+}
+.wrap{max-width:1140px;margin:0 auto;padding:0 28px}
+h1,h2,h3{margin:0;font-variation-settings:'wdth' 125,'wght' 800;letter-spacing:-.02em;line-height:1.02}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--orange);outline-offset:3px}
+
+/* ---------- stamped label: the vernacular of climbing hardware ---------- */
+.stamp{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--slate)}
+
+/* ---------- masthead ---------- */
+.mast{display:flex;justify-content:space-between;align-items:center;padding:26px 0;border-bottom:1px solid var(--rule)}
+.mark{display:flex;gap:11px;align-items:center;font-variation-settings:'wdth' 125,'wght' 800;font-size:19px;letter-spacing:-.01em}
+.mark i{width:11px;height:11px;border:3px solid var(--orange);border-radius:50%;display:block}
+.mast nav{display:flex;gap:26px}
+.mast nav a{text-decoration:none;font-size:14px;color:var(--slate);border-bottom:1px solid transparent;padding-bottom:2px}
+.mast nav a:hover{color:var(--gun);border-color:var(--orange)}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:1.15fr .85fr;gap:56px;align-items:center;padding:76px 0 64px}
+.hero h1{font-size:clamp(38px,6.2vw,76px)}
+.hero h1 em{font-style:normal;color:var(--orange)}
+.lede{font-size:19px;max-width:46ch;margin:26px 0 0;color:#343a40}
+.cta{display:flex;gap:14px;flex-wrap:wrap;margin-top:34px}
+.btn{display:inline-flex;align-items:center;gap:9px;padding:13px 22px;text-decoration:none;
+  font-size:14px;font-variation-settings:'wdth' 100,'wght' 700;letter-spacing:.02em;
+  background:var(--gun);color:var(--alu-hi);border:1px solid var(--gun);transition:transform .15s,background .15s}
+.btn:hover{transform:translateY(-2px);background:#000}
+.btn.ghost{background:transparent;color:var(--gun);border-color:rgba(35,39,43,.3)}
+.btn.ghost:hover{background:rgba(35,39,43,.06)}
+
+/* the rating plate, exactly as gear is stamped */
+.plate{margin-top:44px;display:inline-grid;grid-template-columns:repeat(3,auto);gap:0;
+  border:1px solid var(--rule);background:linear-gradient(180deg,var(--alu-hi),transparent)}
+.plate div{padding:12px 22px 13px;border-right:1px solid var(--rule)}
+.plate div:last-child{border-right:0}
+.plate b{display:block;font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:-.02em}
+
+/* ---------- the 3D carabiner ---------- */
+.rig{perspective:1100px;display:flex;justify-content:center;align-items:center;min-height:420px}
+.spin{transform-style:preserve-3d;position:relative;width:230px;height:380px;
+  animation:turn 19s linear infinite}
+@keyframes turn{
+  0%{transform:rotateX(-14deg) rotateY(0deg)}
+  100%{transform:rotateX(-14deg) rotateY(360deg)}
+}
+.spin .sheet{position:absolute;inset:0}
+.spin .sheet svg{width:100%;height:100%;display:block;overflow:visible}
+
+/* ---------- section frame ---------- */
+section{padding:78px 0;border-top:1px solid var(--rule)}
+.head{display:flex;align-items:baseline;gap:18px;margin-bottom:38px;flex-wrap:wrap}
+.head h2{font-size:clamp(26px,3.4vw,40px)}
+.head p{margin:0;color:var(--slate);font-size:15px;max-width:44ch}
+
+/* ---------- failure cards ---------- */
+.fails{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.fail{background:var(--alu);padding:30px 26px 34px}
+.fail:hover{background:var(--alu-hi)}
+.fail h3{font-size:19px;margin-bottom:11px;font-variation-settings:'wdth' 110,'wght' 800}
+.fail p{margin:0;font-size:15px;color:#3d444a}
+.fail .stamp{display:block;margin-bottom:16px;color:var(--orange)}
+
+/* ---------- ratchet ---------- */
+.ratchet{display:grid;grid-template-columns:.9fr 1.1fr;gap:52px;align-items:center}
+.ratchet svg{width:100%;max-width:330px;display:block;margin:0 auto}
+.ratchet ol{margin:0;padding:0;list-style:none;counter-reset:r}
+.ratchet li{padding:17px 0 17px 46px;border-bottom:1px solid var(--rule);position:relative;font-size:16px}
+.ratchet li:last-child{border-bottom:0}
+.ratchet li::before{counter-increment:r;content:counter(r);position:absolute;left:0;top:18px;
+  font-family:var(--mono);font-size:12px;color:var(--alu);background:var(--gun);
+  width:24px;height:24px;display:grid;place-items:center;border-radius:50%}
+.ratchet li b{font-variation-settings:'wdth' 110,'wght' 700}
+
+/* ---------- terminal ---------- */
+.term{background:var(--gun-lo);color:#d7dbd9;font-family:var(--mono);font-size:13.5px;
+  line-height:1.75;padding:0;overflow:hidden;border:1px solid var(--gun)}
+.term .bar{background:var(--gun);padding:9px 16px;font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:#8b949b;display:flex;justify-content:space-between}
+.term pre{margin:0;padding:20px 22px 24px;overflow-x:auto;white-space:pre}
+.term .c{color:#ff8552;font-weight:600}.term .h{color:#ffb26b;font-weight:600}
+.term .m{color:#7fb2ff}.term .d{color:#79838b}.term .g{color:#8ed99a}
+
+/* ---------- install tabs ---------- */
+.tabs{display:flex;gap:0;border:1px solid var(--rule);border-bottom:0;flex-wrap:wrap}
+.tabs button{flex:1;min-width:130px;background:transparent;border:0;border-right:1px solid var(--rule);
+  padding:14px 12px;font-family:var(--stamp);font-size:13px;font-variation-settings:'wdth' 100,'wght' 700;
+  letter-spacing:.04em;color:var(--slate);cursor:pointer}
+.tabs button:last-child{border-right:0}
+.tabs button[aria-selected=true]{background:var(--gun);color:var(--alu-hi)}
+.panel[hidden]{display:none}
+
+/* ---------- engines ---------- */
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:15px 14px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--slate);font-family:var(--mono);font-weight:400}
+td code{font-family:var(--mono);font-size:13px;color:var(--blue)}
+td:first-child{font-variation-settings:'wdth' 110,'wght' 700;white-space:nowrap}
+
+/* ---------- close ---------- */
+.close{text-align:center;padding:92px 0 40px}
+.close h2{font-size:clamp(28px,4.6vw,54px);max-width:20ch;margin:0 auto 28px}
+footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
+  justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media(max-width:900px){
+  .hero,.ratchet{grid-template-columns:1fr;gap:34px}
+  .rig{min-height:320px;order:-1}
+  .spin{width:170px;height:280px}
+  .fails{grid-template-columns:1fr}
+  .mast nav{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="mast">
+    <span class="mark"><i></i>carabiner</span>
+    <nav>
+      <a href="#problem">Why</a>
+      <a href="#ratchet">The ratchet</a>
+      <a href="#drill">The drill</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/MaXiMo000/carabiner">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <span class="stamp">Repository security · CLI · MIT</span>
+      <h1>Configured is not the same as <em>working</em>.</h1>
+      <p class="lede">carabiner makes any repository secure by default, keeps it that way with a
+      ratchet that only turns one way, and then attacks your own defences to prove they actually fire.</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/MaXiMo000/carabiner">Get it on GitHub →</a>
+        <a class="btn ghost" href="#install">How to use it</a>
+      </div>
+      <div class="plate">
+        <div><span class="stamp">Fast scan</span><b>0.02s</b></div>
+        <div><span class="stamp">Own suite</span><b>31 / 96</b></div>
+        <div><span class="stamp">Deps</span><b>1</b></div>
+      </div>
+    </div>
+    <div class="rig"><div class="spin" id="rig" aria-hidden="true"></div></div>
+  </div>
+</div>
+
+<section id="problem"><div class="wrap">
+  <div class="head">
+    <h2>Every scanner already exists. Nobody runs them.</h2>
+    <p>gitleaks, Trivy, Semgrep, OSV-Scanner are excellent and free. carabiner reimplements none of
+    them. It fixes the three reasons the median repository still runs nothing.</p>
+  </div>
+  <div class="fails">
+    <div class="fail">
+      <span class="stamp">Failure 01</span>
+      <h3>Setup is per-tool, per-language, per-CI</h3>
+      <p>Securing one repo means five READMEs and four config files. A two-hour job you do once and
+      never repeat — so it never happens on repo number two.</p>
+    </div>
+    <div class="fail">
+      <span class="stamp">Failure 02</span>
+      <h3>The first run returns 400 findings</h3>
+      <p>Point any scanner at a codebase older than a year and it buries you in findings about code
+      nobody has touched since. The gate gets switched off, and now the tool has negative value —
+      it looks like coverage.</p>
+    </div>
+    <div class="fail">
+      <span class="stamp">Failure 03</span>
+      <h3>The hook is configured. Nobody installed it.</h3>
+      <p>The config is perfect and nothing runs. Invisible to every static checker, including this
+      one — the only way to know is to plant a credential and watch what happens.</p>
+    </div>
+  </div>
+</div></section>
+
+<section id="ratchet"><div class="wrap">
+  <div class="head">
+    <h2>A ratchet turns one way</h2>
+    <p>The mechanism that makes this installable in a ten-year-old repo on a Tuesday afternoon.</p>
+  </div>
+  <div class="ratchet">
+    <div>
+      <svg viewBox="0 0 240 240" role="img" aria-label="A ratchet wheel and pawl. The pawl allows rotation in one direction and blocks the other.">
+        <g id="wheel" transform-origin="120 120">
+          <circle cx="120" cy="120" r="76" fill="none" stroke="#23272b" stroke-width="2"/>
+          <g id="teeth" fill="#23272b"></g>
+          <circle cx="120" cy="120" r="15" fill="#23272b"/>
+          <circle cx="120" cy="120" r="6" fill="#dcdeda"/>
+        </g>
+        <path id="pawl" d="M120 22 L133 46 L120 42 L107 46 Z" fill="#e2571f"/>
+        <text x="120" y="222" text-anchor="middle" font-family="IBM Plex Mono, monospace"
+              font-size="11" letter-spacing="2" fill="#5b636a" id="click">ACCEPTED · 340</text>
+      </svg>
+    </div>
+    <ol>
+      <li><b>Adopt.</b> <code>carabiner init</code> runs everything once and records every existing
+      finding as accepted. Your build goes green immediately.</li>
+      <li><b>Hold.</b> From then on CI fails only on findings that are <em>new</em>. No cleanup
+      sprint, no 400-item backlog blocking the release.</li>
+      <li><b>Never slip.</b> Accepted debt stays visible under <code>carabiner debt</code>, with the
+      date it was taken on. It is recorded, not deleted.</li>
+      <li><b>Survive a reformat.</b> Findings are fingerprinted on content, never on line numbers —
+      so adding an import at the top of a file does not resurrect the whole baseline.</li>
+    </ol>
+  </div>
+</div></section>
+
+<section id="drill"><div class="wrap">
+  <div class="head">
+    <h2>Then it attacks you</h2>
+    <p>Everything else reads files. The drill reads outcomes — it plants a private key, runs your
+    installed hooks against it, and asks GitHub whether your protections are switched on at all.</p>
+  </div>
+  <div class="term">
+    <div class="bar"><span>carabiner drill</span><span>live output</span></div>
+<pre><span class="d">$</span> carabiner drill
+
+  <span class="h">HIGH</span>     DRILL002  pre-commit hooks are configured but <span class="c">NOT installed</span>
+                     — the config looks right and nothing runs
+           <span class="d">fix: run `pre-commit install`; until then every hook
+                in that file is decorative</span>
+
+  <span class="h">HIGH</span>     DRILL013  the default branch 'main' has no protection rule
+                     — CI cannot gate what can be pushed to directly
+
+  <span class="m">2 new</span>   1.53s</pre>
+  </div>
+  <p style="margin:26px 0 0;max-width:62ch;font-size:16px">A drill that <em>could not run</em> never
+  reports as passing. No token, no network, no <code>pre-commit</code> binary all produce
+  <b>“could NOT be verified”</b>, not a green check. Unverified is not secure — and a green check you
+  did not earn is worse than no check at all.</p>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <div class="head">
+    <h2>Three ways in</h2>
+    <p>Findings land in your PR’s Security tab, tracked across commits by the same fingerprint the
+    ratchet uses.</p>
+  </div>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" aria-controls="p1" id="t1">GitHub Actions</button>
+    <button role="tab" aria-selected="false" aria-controls="p2" id="t2">pre-commit</button>
+    <button role="tab" aria-selected="false" aria-controls="p3" id="t3">Command line</button>
+  </div>
+  <div class="term panel" id="p1" role="tabpanel" aria-labelledby="t1">
+    <div class="bar"><span>.github/workflows/security.yml</span><span>yaml</span></div>
+<pre><span class="m">permissions:</span>
+  contents: read
+  security-events: write
+
+<span class="m">steps:</span>
+  - uses: actions/checkout@v4
+  - uses: <span class="g">MaXiMo000/carabiner@main</span>
+  - uses: github/codeql-action/upload-sarif@v3
+    with:
+      sarif_file: carabiner.sarif</pre>
+  </div>
+  <div class="term panel" id="p2" role="tabpanel" aria-labelledby="t2" hidden>
+    <div class="bar"><span>.pre-commit-config.yaml</span><span>yaml</span></div>
+<pre><span class="m">repos:</span>
+  - repo: <span class="g">https://github.com/MaXiMo000/carabiner</span>
+    rev: main
+    hooks:
+      - id: carabiner
+
+<span class="d"># the fast path is budgeted under 2s — anything slower
+# gets uninstalled from pre-commit inside a week</span></pre>
+  </div>
+  <div class="term panel" id="p3" role="tabpanel" aria-labelledby="t3" hidden>
+    <div class="bar"><span>shell</span><span>bash</span></div>
+<pre><span class="d">$</span> pip install carabiner
+
+<span class="d">$</span> carabiner init      <span class="d"># detect, configure, ratchet. once per repo.</span>
+<span class="d">$</span> carabiner scan      <span class="d"># what is new. pre-commit and CI.</span>
+<span class="d">$</span> carabiner drill     <span class="d"># prove the controls fire.</span>
+<span class="d">$</span> carabiner debt      <span class="d"># what you carry, and since when.</span></pre>
+  </div>
+</div></section>
+
+<section id="engines"><div class="wrap">
+  <div class="head">
+    <h2>What it checks</h2>
+    <p>A missing scanner degrades to an install hint. A scanner that <em>fails</em> produces a finding
+    saying the check did not happen — a tool that errors is not a repo that is clean.</p>
+  </div>
+  <table>
+    <thead><tr><th>Engine</th><th>Checks</th><th>Needs</th></tr></thead>
+    <tbody>
+      <tr><td>ci · Actions</td>
+        <td><code>pull_request_target</code> with a PR-head checkout · script injection from
+        <code>github.event</code> into <code>run:</code> · unpinned actions · token blast radius ·
+        self-hosted runners</td><td>nothing</td></tr>
+      <tr><td>ci · GitLab</td>
+        <td>script injection from a merge-request title or branch name · unpinned remote
+        <code>include:</code> · mutable image and service tags</td><td>nothing</td></tr>
+      <tr><td>repo</td>
+        <td><code>.gitignore</code> gaps · committed key material · missing disclosure policy ·
+        credentials embedded in git remotes</td><td>nothing</td></tr>
+      <tr><td>secrets</td>
+        <td>working tree every commit; history behind <code>--all</code> and one severity higher,
+        because deleting the file is not remediation</td><td>gitleaks</td></tr>
+      <tr><td>deps</td>
+        <td>lockfile advisories across PyPI, npm, Go, Maven, crates.io and more — ids normalised to
+        CVE so two scanners cannot report one problem twice</td><td>osv-scanner</td></tr>
+    </tbody>
+  </table>
+</div></section>
+
+<div class="wrap">
+  <div class="close">
+    <h2>Check the gear before you need it.</h2>
+    <div class="cta" style="justify-content:center">
+      <a class="btn" href="https://github.com/MaXiMo000/carabiner">Get it on GitHub →</a>
+    </div>
+  </div>
+  <footer>
+    <span class="stamp">carabiner · MIT · built by Ritish Saini</span>
+    <span class="stamp"><a href="https://github.com/MaXiMo000/carabiner">github.com/MaXiMo000/carabiner</a></span>
+  </footer>
+</div>
+
+<script>
+// ---- the carabiner, extruded. Layered SVG sheets in real 3D perspective:
+// no library, no mesh, just depth built one plane at a time.
+(function(){
+  const rig = document.getElementById('rig');
+  if(!rig) return;
+  const LAYERS = 26, STEP = 0.9;
+  const body = "M115 20 C60 20 26 62 26 128 L26 262 C26 328 60 366 115 366 C150 366 168 348 172 322";
+  const gate = "M172 322 C176 296 168 268 150 250";
+  for(let i=0;i<LAYERS;i++){
+    const t = i/(LAYERS-1);
+    // aluminium darkens toward the interior of the extrusion; the front face is brightest
+    const shade = 96 + Math.round(74*Math.pow(t,1.5));
+    const sheet = document.createElement('div');
+    sheet.className='sheet';
+    sheet.style.transform = `translateZ(${(i-(LAYERS-1)/2)*STEP}px)`;
+    sheet.innerHTML =
+      `<svg viewBox="0 0 200 386" fill="none">
+         <path d="${body}" stroke="rgb(${shade},${shade+6},${shade+3})" stroke-width="26"
+               stroke-linecap="round"/>
+         <path d="${gate}" stroke="${i>LAYERS-4?'#e2571f':`rgb(${Math.round(shade*.92)},${Math.round(shade*.55)},${Math.round(shade*.36)})`}"
+               stroke-width="15" stroke-linecap="round"/>
+       </svg>`;
+    rig.appendChild(sheet);
+  }
+})();
+
+// ---- the ratchet: teeth, and a pawl that refuses to let it back.
+(function(){
+  const teeth = document.getElementById('teeth');
+  const wheel = document.getElementById('wheel');
+  const pawl  = document.getElementById('pawl');
+  const label = document.getElementById('click');
+  if(!teeth) return;
+  const N = 18;
+  for(let i=0;i<N;i++){
+    const a = (i/N)*Math.PI*2, cx=120, cy=120, r=76;
+    // asymmetric teeth: a gentle ramp one way, a vertical face the other. That
+    // asymmetry IS the mechanism -- it is why the wheel cannot come back.
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    const x1=cx+Math.cos(a)*r, y1=cy+Math.sin(a)*r;
+    const a2=a+ (Math.PI*2/N)*0.62;
+    const x2=cx+Math.cos(a2)*(r+13), y2=cy+Math.sin(a2)*(r+13);
+    const a3=a+ (Math.PI*2/N);
+    const x3=cx+Math.cos(a3)*r, y3=cy+Math.sin(a3)*r;
+    p.setAttribute('d',`M${x1} ${y1} L${x2} ${y2} L${x3} ${y3} Z`);
+    teeth.appendChild(p);
+  }
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(reduce) return;
+  let accepted = 340, angle = 0, ticks = 0;
+  const section = document.getElementById('ratchet');
+  addEventListener('scroll', ()=>{
+    const r = section.getBoundingClientRect();
+    const seen = Math.min(1, Math.max(0, 1 - (r.top / innerHeight)));
+    const target = seen * 360;
+    // one way only: the wheel never decreases, whichever way you scroll.
+    if(target > angle){
+      angle = target;
+      wheel.setAttribute('transform', `rotate(${angle} 120 120)`);
+      const t = Math.floor(angle / (360/18));
+      if(t !== ticks){
+        ticks = t;
+        accepted += 1;
+        label.textContent = `ACCEPTED · ${accepted}`;
+        pawl.style.transform='translateY(4px)';
+        setTimeout(()=>pawl.style.transform='',110);
+      }
+    }
+  }, {passive:true});
+  pawl.style.transition='transform .11s ease-out';
+  pawl.style.transformOrigin='120px 22px';
+})();
+
+// ---- tabs
+(function(){
+  const tabs=[...document.querySelectorAll('[role=tab]')];
+  tabs.forEach((tab,i)=>{
+    tab.addEventListener('click',()=>{
+      tabs.forEach(t=>{
+        const on = t===tab;
+        t.setAttribute('aria-selected',on);
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+    });
+    tab.addEventListener('keydown',e=>{
+      const d = e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;
+      if(d){ e.preventDefault(); tabs[(i+d+tabs.length)%tabs.length].focus(); tabs[(i+d+tabs.length)%tabs.length].click(); }
+    });
+  });
+})();
+</script>
+</body>
+</html>
