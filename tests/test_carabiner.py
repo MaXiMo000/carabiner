@@ -618,6 +618,40 @@ def test_offline_opens_no_sockets():
           [n for n in ("ci", "repo", "secrets", "deps") if networked(n)], ["deps"])
 
 
+def test_docs_do_not_drift_or_recommend_mutable_refs():
+    """Written after nearly every README edit in one session silently no-opped:
+    blind string replacement reports success whether or not it matched anything.
+
+    Doubles as dogfooding -- `@main` and `rev: main` are exactly the mutable
+    references carabiner reports as CI003 and GL003, so recommending one in our
+    own docs would be indefensible.
+    """
+    import re
+    from carabiner import __version__
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for name in ("README.md", "site/index.html"):
+        body = (root / name).read_text()
+        refs = re.findall(r"carabiner@(\S+?)[<\s`\)]", body)
+        refs += re.findall(r"rev:\s*(\S+)", body)
+        moving = [r for r in refs if r in ("main", "master", "latest", "HEAD")]
+        check(f"{name} recommends no mutable ref", moving, [])
+        pins = {r.lstrip("v") for r in refs if r.startswith("v")}
+        check(f"{name} pins are all one version", len(pins) <= 1, True)
+        if pins:
+            check(f"{name} pin matches the shipped version",
+                  pins.pop(), __version__)
+
+
+def test_readme_describes_the_engines_that_exist():
+    """The README claimed 'Phase 0, native engines only' for three phases after
+    that stopped being true."""
+    from carabiner.engines import ALL
+    root = pathlib.Path(__file__).resolve().parents[1]
+    body = (root / "README.md").read_text()
+    for engine in ALL:
+        check(f"README mentions the '{engine}' engine", f"`{engine}`" in body, True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""

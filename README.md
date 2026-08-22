@@ -70,29 +70,96 @@ stopped working is a regression today, not pre-existing debt to accept.
 > by trying to get past them.
 
 **One normalized model.** Every engine reports into one `Finding`. Deduplicated
-across engines — Trivy and OSV-Scanner both read your lockfile, and a developer
-shown the same CVE twice trusts the tool less each time — and emitted as SARIF
-so findings land in the PR Security tab.
+across engines, keeping the worse severity — two scanners reporting one CVE is
+one finding, and a developer shown the same problem twice trusts the tool less
+each time. Emitted as SARIF so findings land in the PR Security tab.
 
-## Status
-
-Phase 0. Native engines only (`ci`, `repo`) — no external tools required, and
-they still find real problems. Scanner wrappers are Phase 1, the drill is
-Phase 3. See [PLAN.md](PLAN.md).
+## Adopt it
 
 ```bash
-python3 -m carabiner.cli scan --root /path/to/repo
-python3 -m carabiner.cli lock --root /path/to/repo   # ratchet
-python3 -m carabiner.cli debt --root /path/to/repo
+carabiner init          # detect, configure, ratchet. Once per repo.
+carabiner scan          # what is new. Pre-commit and CI. Under 2s.
+carabiner scan --all    # every engine, whole history. CI cadence.
+carabiner drill         # prove the controls fire. After init, and weekly.
+carabiner debt          # what you carry, since when, and what is overdue.
+carabiner lock --expires 90   # accept it, but only for 90 days.
 ```
+
+`init` prints every file it will write before writing it, and `--dry-run` writes
+nothing. A security tool that silently rewrites your config has no business
+asking to be trusted.
+
+## In CI
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: MaXiMo000/carabiner@v0.1.2
+  - uses: github/codeql-action/upload-sarif@v3
+    with:
+      sarif_file: carabiner.sarif
+```
+
+Findings land in the PR's Security tab, tracked across commits by the same
+stable fingerprint the ratchet uses — so reformatting a file does not report
+everything as new.
+
+Add `args: --all --summary carabiner.md` and post that file as a PR comment to
+get one short line per PR — `2 new · 1 fixed · 340 accepted` — instead of the
+whole backlog restated every time.
+
+## Anywhere else — GitLab CI, Jenkins, CircleCI
+
+```bash
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:v0.1.2 scan --all
+```
+
+The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its
+base by digest, checksum-verifies every binary it downloads, and ships with a
+build-provenance attestation.
+
+## As a pre-commit hook
+
+```yaml
+repos:
+  - repo: https://github.com/MaXiMo000/carabiner
+    rev: v0.1.2
+    hooks:
+      - id: carabiner
+```
+
+The fast path is budgeted under 2 seconds. Anything slower gets uninstalled from
+pre-commit inside a week — the observed failure mode of every pre-commit
+security tool — so the budget is enforced by a test, not a goal.
 
 ## Engines
 
 | Engine | Checks | Needs |
 |---|---|---|
-| `ci` (GitHub Actions) | CI001 `pull_request_target` + PR-head checkout · CI002 script injection from `github.event` into `run:` · CI003 unpinned actions · CI004/5 token blast radius · CI007 self-hosted runners | nothing |
-| `ci` (GitLab CI) | GL001 script injection from merge-request title or branch name · GL002 unpinned remote `include:` · GL003 mutable image/service tags | nothing |
-| `repo` | REPO001 `.gitignore` gaps · REPO002 committed key material · REPO003 no SECURITY.md · REPO004 credentials in git remotes | nothing |
+| `ci` — GitHub Actions | CI001 `pull_request_target` + PR-head checkout · CI002 script injection from `github.event` into `run:` · CI003 unpinned actions · CI004/5 token blast radius · CI007 self-hosted runners | nothing |
+| `ci` — GitLab CI | GL001 script injection from a merge-request title or branch name · GL002 unpinned remote `include:` · GL003 mutable image and service tags | nothing |
+| `repo` | REPO001 `.gitignore` gaps · REPO002 committed key material · REPO003 no disclosure policy · REPO004 credentials in git remotes | nothing |
+| `secrets` | working tree every commit; history behind `--all` and one severity higher, because deleting the file is not remediation | `gitleaks` |
+| `deps` | lockfile advisories across PyPI, npm, Go, Maven, crates.io and more; ids normalised to CVE so two scanners cannot report one problem twice | `osv-scanner` |
+
+A missing scanner degrades to an install hint, never a crash. And a scanner that
+*fails* produces a finding saying the check did not happen — a tool that errors
+is not a repo that is clean.
+
+## Known limits, stated plainly
+
+- The `ci` engine covers GitHub Actions and GitLab CI. Jenkins, CircleCI and
+  Bitbucket get the other engines and nothing from that one.
+- Only top-level dependency manifests are read; monorepo subprojects are not.
+- The published Docker image is `linux/amd64` only.
+
+Tested on Linux and Windows, Python 3.10 and 3.13. `--offline` is enforced by a
+test that blocks socket creation and asserts a full scan still completes — the
+claim is checked, not documented.
 
 ## What it will never do
 
@@ -103,3 +170,7 @@ the value is the ratchet, the drill, and the normalized model.
 Dependencies: PyYAML and the standard library. That is the whole list, on
 purpose — every dependency is a package a security auditor now implicitly
 vouches for.
+
+## License
+
+MIT. See [SECURITY.md](SECURITY.md) to report a vulnerability.
