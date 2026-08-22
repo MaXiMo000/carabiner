@@ -287,6 +287,78 @@ def test_deps_integration_when_osv_present():
               all(f.rule.startswith("DEP-") for f in got), True)
 
 
+def test_ignore_without_a_reason_is_an_error():
+    """The one piece of process the tool imposes. A silent ignore list grows
+    until the scan is decorative; a written reason has to survive code review."""
+    from carabiner import config
+    try:
+        config.Config({"ignore": [{"path": "src/**"}]})
+        check("unexplained ignore is rejected", "accepted", "ConfigError")
+    except config.ConfigError as e:
+        check("unexplained ignore is rejected", "reason" in str(e), True)
+    try:
+        config.Config({"ignore": [{"path": "src/**", "reason": "  "}]})
+        check("a blank reason is not a reason", "accepted", "ConfigError")
+    except config.ConfigError:
+        check("a blank reason is not a reason", True, True)
+    ok = config.Config({"ignore": [{"path": "src/**", "reason": "vendored"}]})
+    check("an explained ignore is accepted", len(ok.ignores), 1)
+
+
+def test_ignore_matching():
+    from carabiner import config
+    cfg = config.Config({"ignore": [
+        {"path": "tests/fixtures/**", "reason": "deliberately vulnerable corpus"},
+        {"check": "REPO003", "reason": "disclosure policy lives in the org profile"},
+    ]})
+    corpus = Finding("ci", "CI001", "critical", "tests/fixtures/bad/wf.yml", "m")
+    real = Finding("ci", "CI001", "critical", ".github/workflows/ci.yml", "m")
+    everywhere = Finding("repo", "REPO003", "low", "SECURITY.md", "m")
+    check("path glob suppresses the corpus", cfg.ignored(corpus), True)
+    check("but not the real workflow", cfg.ignored(real), False)
+    check("a rule can be suppressed everywhere", cfg.ignored(everywhere), True)
+
+
+def test_per_engine_thresholds():
+    """A missing SECURITY.md and a leaked key do not deserve the same gate."""
+    from carabiner import config
+    cfg = config.Config({"engines": {
+        "repo": {"fail_on": "critical"}, "secrets": {"fail_on": "high"}}})
+    nit = Finding("repo", "REPO003", "low", "SECURITY.md", "m")
+    leak = Finding("secrets", "SECRET-aws", "high", "a.py", "m", snippet="k")
+    check("a low repo nit does not fail the build", cfg.gate([nit]), 0)
+    check("a high secret does", cfg.gate([leak]), 1)
+    check("disabled engines are skipped entirely",
+          config.Config({"engines": {"ci": {"enabled": False}}}).enabled("ci"), False)
+
+
+def test_init_dry_run_writes_nothing():
+    """`init` prints every file it will write. A security tool that silently
+    rewrites your config has no business asking to be trusted."""
+    import shutil, tempfile
+    from carabiner import cli, config, baseline
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        shutil.copytree(FIXTURES / "ci_no_permissions", root / "r")
+        repo = root / "r"
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.main(["init", "--root", str(repo), "--dry-run"])
+        check("dry run writes no config",
+              (repo / config.CONFIG_NAME).exists(), False)
+        check("dry run writes no baseline",
+              (repo / baseline.BASELINE_PATH).exists(), False)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.main(["init", "--root", str(repo)])
+        check("a real init writes the config",
+              (repo / config.CONFIG_NAME).exists(), True)
+        check("and ratchets the baseline",
+              (repo / baseline.BASELINE_PATH).exists(), True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = cli.main(["scan", "--root", str(repo)])
+        check("adopted repo is green immediately", code, 0)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
