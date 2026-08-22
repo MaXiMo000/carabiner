@@ -223,7 +223,10 @@ def test_deps_parser_and_severity():
         "source": {"path": "/repo/requirements.txt", "type": "lockfile"},
         "packages": [{
             "package": {"name": "django", "version": "2.2.0", "ecosystem": "PyPI"},
-            "groups": [{"max_severity": "9.8"}],
+            # Real osv-scanner always names the advisory each score belongs to.
+            # The earlier fixture omitted `ids`, which let a wrong parser pass.
+            "groups": [{"ids": ["GHSA-aaaa-bbbb-cccc"], "max_severity": "9.8"},
+                       {"ids": ["GHSA-dddd-eeee-ffff"], "max_severity": "5.0"}],
             "vulnerabilities": [
                 {"id": "GHSA-aaaa-bbbb-cccc", "aliases": ["CVE-2019-19844"],
                  "summary": "Account takeover via password reset"},
@@ -724,6 +727,22 @@ def test_deps_finds_manifests_in_subprojects():
         (deep / "package-lock.json").write_text("{}", encoding="utf-8")
         check("and the walk is depth-bounded",
               any(d.startswith("a") for d in deps.manifest_dirs(root)), False)
+
+
+def test_deps_scores_come_from_the_right_advisory():
+    """osv-scanner's `groups` holds one entry per advisory. Applying the last
+    group's max_severity to every vulnerability in the package attaches an
+    unrelated score -- silently wrong rather than obviously broken."""
+    from carabiner.engines import deps
+    payload = {"results": [{"source": {"path": "p.lock"}, "packages": [{
+        "package": {"name": "x", "version": "1"},
+        "groups": [{"ids": ["GHSA-aaa"], "max_severity": "9.8"},
+                   {"ids": ["GHSA-bbb"], "max_severity": "2.1"}],
+        "vulnerabilities": [{"id": "GHSA-aaa", "summary": "critical one"},
+                            {"id": "GHSA-bbb", "summary": "minor one"}]}]}]}
+    got = {f.rule: f.severity for f in deps._parse(payload, pathlib.Path("/"))}
+    check("the 9.8 advisory is critical", got["DEP-GHSA-aaa"], "critical")
+    check("the 2.1 advisory is not", got["DEP-GHSA-bbb"], "low")
 
 
 def test_tool_failure_is_never_reported_as_clean():

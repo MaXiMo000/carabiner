@@ -139,16 +139,24 @@ def _parse(payload: dict, root: pathlib.Path) -> list[Finding]:
             info = pkg.get("package") or {}
             name = str(info.get("name") or "?")
             version = str(info.get("version") or "?")
-            worst = None
+            # `groups` is one entry per advisory, each with its own ids and
+            # max_severity. Taking the last one and applying it to every
+            # vulnerability in the package would attach an unrelated advisory's
+            # score -- latent until a vulnerability arrives without a named
+            # severity, and then silently wrong rather than obviously broken.
+            worst = {}
             for group in pkg.get("groups") or []:
-                worst = group.get("max_severity") or worst
+                score = group.get("max_severity")
+                for ident in (group.get("ids") or []) + (group.get("aliases") or []):
+                    worst[ident] = score
             for vuln in pkg.get("vulnerabilities") or []:
                 if not isinstance(vuln, dict):
                     continue
-                vid = canonical_id(vuln.get("id") or "UNKNOWN", vuln.get("aliases"))
+                raw_id = vuln.get("id") or "UNKNOWN"
+                vid = canonical_id(raw_id, vuln.get("aliases"))
                 out.append(Finding(
                     engine="deps", rule=f"DEP-{vid}",
-                    severity=_severity(vuln, worst), path=src,
+                    severity=_severity(vuln, worst.get(raw_id)), path=src,
                     message=f"{name} {version}: "
                             f"{str(vuln.get('summary') or vid)[:140]}",
                     fix=f"upgrade {name}; see https://osv.dev/vulnerability/"
