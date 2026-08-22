@@ -117,10 +117,19 @@ def run(root: pathlib.Path) -> list[Finding]:
                 ref = str((step.get("with") or {}).get("ref", ""))
                 if uses.startswith("actions/checkout") and (
                         "github.event.pull_request" in ref or "head" in ref.lower()):
+                    # A job-level `if:` comparing the PR author is a real
+                    # mitigation -- a login is not attacker-settable. Discourse
+                    # gates exactly this workflow to dependabot. Still reported,
+                    # because these guards are easy to write wrongly, but not at
+                    # the severity reserved for an open door.
+                    guard = str(_job.get("if", ""))
+                    guarded = bool(re.search(r"(user\.login|github\.actor)", guard))
                     out.append(Finding(
-                        "ci", "CI001", "critical", rel,
+                        "ci", "CI001", "high" if guarded else "critical", rel,
                         f"job '{job_name}' runs on pull_request_target and checks "
-                        "out the PR head -- untrusted code runs with your secrets",
+                        "out the PR head -- untrusted code runs with your secrets"
+                        + (" (a job-level `if:` restricts who triggers it, which "
+                           "lowers but does not remove the risk)" if guarded else ""),
                         fix="use `pull_request`, or split into an untrusted build "
                             "job and a privileged job that never checks out the head",
                         snippet=f"ref: {ref}", line=None))

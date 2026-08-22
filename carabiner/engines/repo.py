@@ -7,6 +7,7 @@ actually costs people money: a credential in the tree.
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 
 from ..finding import Finding
@@ -59,6 +60,41 @@ def _tracked(root: pathlib.Path) -> list[str]:
     return [p for p in r.stdout.split("\0") if p]
 
 
+ENV_SECRET_KEYS = ("SECRET", "TOKEN", "PASSWORD", "PASSWD", "APIKEY", "API_KEY",
+                   "PRIVATE", "CREDENTIAL", "AUTH", "ACCESS_KEY", "SESSION")
+
+
+def _env_has_secret(body: str) -> bool:
+    """Does this dotenv file actually carry a credential?
+
+    A version pin is not a secret. A populated SECRET/TOKEN/PASSWORD key is, and
+    so is a URL with a password embedded in its authority.
+    """
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip().strip("\"'")
+        if not value or value.startswith("${"):
+            continue
+        if any(word in key.upper() for word in ENV_SECRET_KEYS):
+            return True
+        if "://" in value and "@" in value.split("://", 1)[1].split("/")[0]:
+            return True
+    return any(m in body for m in PRIVATE_MARKERS)
+
+
+def _is_fixture(parts) -> bool:
+    """`test-fixtures` is a fixture directory. Matching whole path segments
+    missed all fourteen of vault's committed test keys, which sit under exactly
+    that name."""
+    for part in parts:
+        if any(tok in FIXTURE_HINTS for tok in re.split(r"[-_. ]", part.lower())):
+            return True
+    return False
+
+
 def _key_material(path: pathlib.Path, name: pathlib.PurePosixPath) -> str | None:
     """What kind of secret this file holds, or None.
 
@@ -67,8 +103,19 @@ def _key_material(path: pathlib.Path, name: pathlib.PurePosixPath) -> str | None
     critical key material is the kind of noise that gets a scanner switched off
     -- half of these across ten well-known repositories were certificates.
     """
-    if name.name == ".env" or name.name in KEY_NAMES:
+    if name.name in KEY_NAMES:
         return "key material"
+    if name.name == ".env" or name.name.startswith(".env."):
+        # Third time this mistake has been made in this codebase: the filename
+        # is not the evidence. grafana commits eleven .env files under devenv/
+        # that contain nothing but `mysql_version=8.0.32`.
+        try:
+            return ("an environment file with credentials in it"
+                    if _env_has_secret(path.read_text(encoding="utf-8",
+                                                      errors="replace")[:8000])
+                    else None)
+        except OSError:
+            return None
     if name.name in CREDENTIAL_CONFIGS:
         try:
             body = path.read_text(encoding="utf-8", errors="replace")[:4000]
@@ -110,7 +157,7 @@ def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
         kind = _key_material(root / rel, name)
         if kind is None:
             continue
-        fixture = any(part.lower() in FIXTURE_HINTS for part in name.parts[:-1])
+        fixture = _is_fixture(name.parts[:-1])
         out.append(Finding(
             "repo", "REPO002", "medium" if fixture else "critical", rel,
             f"{kind} is committed to the repository"

@@ -809,6 +809,66 @@ def test_injection_rule_distinguishes_attacker_input_from_repo_state():
           [f.severity for f in scan_run('echo "${{ github.head_ref }}"')], ["high"])
 
 
+def test_dotenv_and_fixture_paths_are_judged_by_content_not_name():
+    """Three findings from a 60-repo sweep, all miscalibrated:
+
+    - grafana commits eleven .env files under devenv/ holding `mysql_version=8.0.32`
+      and every one was reported as CRITICAL key material.
+    - vault keeps fourteen test keys under `test-fixtures/`, which whole-segment
+      matching missed because the directory name is hyphenated.
+    """
+    import tempfile
+    from carabiner.engines import repo as R
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        vers = root / ".env"
+        vers.write_text("mysql_version=8.0.32\nelastic_version=8.5.0\n", encoding="utf-8")
+        check("a dotenv of version pins is not a credential",
+              R._key_material(vers, pathlib.PurePosixPath(".env")), None)
+
+        real = root / "real.env"
+        real.write_text("DB_PASSWORD=hunter2\n", encoding="utf-8")
+        check("but a populated password key is",
+              R._key_material(real, pathlib.PurePosixPath(".env")) is not None, True)
+
+        url = root / "url.env"
+        url.write_text("DATABASE_URL=postgres://u:p@host/db\n", encoding="utf-8")
+        check("and so is a credential inside a URL",
+              R._key_material(url, pathlib.PurePosixPath(".env")) is not None, True)
+
+    check("hyphenated fixture directories count as fixtures",
+          R._is_fixture(("api", "test-fixtures", "keys")), True)
+    check("as do underscored ones", R._is_fixture(("pkg", "test_data")), True)
+    check("but a real source directory does not",
+          R._is_fixture(("src", "config", "secrets")), False)
+
+
+def test_guarded_pull_request_target_is_reported_lower():
+    """discourse gates its pull_request_target workflow to dependabot by login,
+    which is not attacker-settable. Still worth reporting -- these guards are
+    easy to write wrongly -- but not at open-door severity."""
+    import tempfile
+    from carabiner.engines import ci as ci_engine
+
+    def scan(guard):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "w.yml").write_text(
+                "on: pull_request_target\npermissions: {contents: read}\njobs:\n"
+                f"  j:\n{guard}    runs-on: ubuntu-latest\n    steps:\n"
+                "      - uses: actions/checkout@v4\n"
+                "        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n",
+                encoding="utf-8")
+            return [f for f in ci_engine.run(root) if f.rule == "CI001"]
+
+    check("unguarded is critical", [f.severity for f in scan("")], ["critical"])
+    check("guarded by author login is high",
+          [f.severity for f in
+           scan("    if: github.event.pull_request.user.login == 'dependabot[bot]'\n")],
+          ["high"])
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -839,7 +899,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 44
+    FLOOR = 46
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")
