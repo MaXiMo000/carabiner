@@ -14,7 +14,7 @@ import pathlib
 import sys
 import time
 
-from . import baseline, config
+from . import baseline, config, drill
 from .engines import ALL
 from .engines import missing as engines_missing
 from .finding import rank
@@ -110,7 +110,7 @@ def _init(root: pathlib.Path, dry_run: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="carabiner")
-    ap.add_argument("command", choices=["init", "scan", "lock", "debt"])
+    ap.add_argument("command", choices=["init", "scan", "drill", "lock", "debt"])
     ap.add_argument("--root", type=pathlib.Path, default=pathlib.Path("."))
     ap.add_argument("--engine", action="append", dest="engines")
     ap.add_argument("--fail-on", default=None,
@@ -118,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", dest="full",
                     help="every engine, whole history. CI cadence, not pre-commit.")
     ap.add_argument("--dry-run", action="store_true", help="init: write nothing")
+    ap.add_argument("--offline", action="store_true",
+                    help="make no network calls; API drills report as unverified")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--sarif", metavar="PATH",
                     help="write SARIF 2.1.0 for GitHub code scanning")
@@ -134,6 +136,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return _init(root, args.dry_run)
+
+    if args.command == "drill":
+        started = time.monotonic()
+        found = drill.run(root, offline=args.offline)
+        print(human.render(found, [], time.monotonic() - started))
+        # Drills are not ratcheted. A control that stopped working is not
+        # pre-existing debt to accept -- it is a regression, today.
+        return cfg.gate(found)
 
     started = time.monotonic()
     findings = _collect(root, args.engines, args.full, cfg)

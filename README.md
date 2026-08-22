@@ -41,10 +41,23 @@ Findings are fingerprinted on `(engine, rule, path, normalized snippet)`, never
 on line numbers. Adding an import at the top of a file must not resurrect 400
 accepted findings; that's why baseline features elsewhere get abandoned.
 
-**The drill** *(Phase 3)*. `carabiner drill` doesn't read configuration — it
-attacks the repo. Writes a canary secret and checks the pre-commit hook
-actually blocks it. Queries whether push protection is really on. Verifies the
-security workflow is a *required* check, not merely present.
+**The drill.** `carabiner drill` doesn't read configuration — it attacks the
+repo. It plants a private key and checks the installed pre-commit hooks actually
+stop it; asks GitHub whether push protection is really on; and verifies the
+security workflow is a *required* check rather than one that runs, fails, and
+merges anyway.
+
+```
+$ carabiner drill
+  HIGH     DRILL002  pre-commit hooks are configured but NOT installed --
+                     the config looks right and nothing runs
+  HIGH     DRILL012  the repository default GITHUB_TOKEN is read/WRITE
+```
+
+A drill that could not run **never reports as passing** — no token, no network,
+no `pre-commit` binary all produce "could NOT be verified", not a green check.
+Unverified is not secure. Drills are also never ratcheted: a control that
+stopped working is a regression today, not pre-existing debt to accept.
 
 > Most security tools check your configuration. carabiner checks your defenses
 > by trying to get past them.

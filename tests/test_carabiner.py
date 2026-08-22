@@ -451,6 +451,77 @@ def test_both_ci_hosts_are_covered_by_one_engine():
           ci.run(FIXTURES / "gitlab_mutable_image")}, {"ci"})
 
 
+def test_drill_catches_configured_but_uninstalled_hooks():
+    """The flagship drill. A hook listed in .pre-commit-config.yaml that nobody
+    ran `pre-commit install` for is invisible to every static checker -- the
+    configuration is perfect and nothing runs."""
+    import tempfile
+    from carabiner import drill
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / ".git" / "hooks").mkdir(parents=True)
+        check("no hooks configured at all is reported",
+              [f.rule for f in drill.hook_fires(root)], ["DRILL001"])
+
+        (root / ".pre-commit-config.yaml").write_text("repos: []\n")
+        got = drill.hook_fires(root)
+        check("configured but not installed is the finding that matters",
+              [f.rule for f in got], ["DRILL002"])
+        check("and it is high severity", got[0].severity, "high")
+
+        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n")
+        got = drill.hook_fires(root)
+        check("installed hooks are either exercised or reported unverified",
+              [f.rule for f in got] in ([], ["DRILL003"], ["DRILL004"]), True)
+
+
+def test_drill_never_passes_what_it_could_not_check():
+    """A green check you did not earn is worse than no check."""
+    import tempfile
+    from carabiner import drill
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / ".git" / "hooks").mkdir(parents=True)
+        (root / ".pre-commit-config.yaml").write_text("repos: []\n")
+        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n")
+        got = drill.run(root, offline=True)
+        api = [f for f in got if f.rule == "DRILL010"]
+        check("offline mode reports API drills as unverified, not passed",
+              len(api), 1)
+        check("and says so in words", "could NOT be verified" in api[0].message, True)
+        check("unverified is not silence", api[0].severity, "low")
+
+
+def test_drill_canary_is_not_a_real_credential():
+    """The drill plants a key on purpose. It must never be one that works, and
+    must never be committable."""
+    from carabiner import drill
+    check("canary is a private key header", "PRIVATE KEY" in drill.CANARY, True)
+    check("canary announces itself as fake",
+          "nOtArEaLkEy" in drill.CANARY.replace("A", "A"), True)
+    check("canary is not valid base64 key material",
+          len(drill.CANARY) < 400, True)
+
+
+def test_drill_cleans_up_even_when_the_hook_fails():
+    """A crash must not leave a credential-shaped file in someone's repo."""
+    import tempfile
+    from carabiner import drill
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / ".git" / "hooks").mkdir(parents=True)
+        (root / ".git" / "info").mkdir(parents=True)
+        (root / ".pre-commit-config.yaml").write_text("repos: []\n")
+        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n")
+        drill.hook_fires(root)
+        check("no canary left behind",
+              (root / ".carabiner-drill-canary.key").exists(), False)
+        excl = root / ".git" / "info" / "exclude"
+        if excl.exists():
+            check("and it was git-ignored before being written, not after",
+                  "carabiner-drill-canary" in excl.read_text(), True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""

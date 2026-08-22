@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+
+  # carabiner on carabiner, at commit speed. The ratchet means this fails only
+  # on findings that are new.
+  - repo: local
+    hooks:
+      - id: carabiner
+        name: carabiner
+        entry: python3 -m carabiner.cli scan
+        language: system
+        pass_filenames: false
+        always_run: true
