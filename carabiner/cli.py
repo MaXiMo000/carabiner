@@ -103,7 +103,7 @@ def _init(root: pathlib.Path, dry_run: bool) -> int:
     if cfg_path.exists():
         print(f"{config.CONFIG_NAME} already exists -- left alone.")
     else:
-        cfg_path.write_text(body)
+        cfg_path.write_text(body, encoding="utf-8")
     n = baseline.save(root, findings, reason="accepted at carabiner init")
 
     print(f"ratcheted {n} findings into {baseline.BASELINE_PATH}\n")
@@ -209,14 +209,14 @@ def main(argv: list[str] | None = None) -> int:
             lines.append(f"- …and {len(new)-10} more")
         if not new:
             lines.append("No new findings.")
-        pathlib.Path(args.summary).write_text("\n".join(lines) + "\n")
+        pathlib.Path(args.summary).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     if args.sarif:
         # Every finding, not just the new ones: the Security tab is an inventory,
         # not a diff, and GitHub does its own resolved/new tracking from the
         # fingerprints. The build gate below still only considers what is new.
         from . import __version__
-        pathlib.Path(args.sarif).write_text(sarif.render(findings, __version__))
+        pathlib.Path(args.sarif).write_text(sarif.render(findings, __version__), encoding="utf-8")
         print(f"wrote {len(findings)} findings to {args.sarif}")
 
     if args.json:

@@ -43,7 +43,7 @@ def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
     out: list[Finding] = []
 
     gitignore = root / ".gitignore"
-    body = gitignore.read_text() if gitignore.exists() else ""
+    body = gitignore.read_text(encoding="utf-8", errors="replace") if gitignore.exists() else ""
     missing = [p for p in MUST_IGNORE if p not in body]
     if missing:
         out.append(Finding(
@@ -75,7 +75,7 @@ def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
 
     gitconfig = root / ".git" / "config"
     if gitconfig.exists():
-        text = gitconfig.read_text(errors="replace")
+        text = gitconfig.read_text(encoding="utf-8", errors="replace")
         if "://" in text and "@" in text and any(
                 f"{s}:" in text for s in ("https", "http")):
             for line in text.splitlines():

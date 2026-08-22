@@ -37,7 +37,7 @@ def scan(root):
 
 def test_fixtures():
     for d in sorted(p for p in FIXTURES.iterdir() if p.is_dir()):
-        expected = sorted(json.loads((d / "expected.json").read_text())["expected"])
+        expected = sorted(json.loads((d / "expected.json").read_text(encoding="utf-8"))["expected"])
         got = sorted(f.rule for f in scan(d))
         check(f"fixture {d.name}", got, expected)
 
@@ -154,7 +154,7 @@ def test_secrets_integration_when_gitleaks_present():
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         (root / "id_rsa").write_text(f"{marker}\n{body}\n-----END" +
-                                     " RSA PRIVATE KEY-----\n")
+                                     " RSA PRIVATE KEY-----\n", encoding="utf-8")
         got = secrets.run(root)
         check("gitleaks findings are normalized into Findings",
               [f.engine for f in got][:1], ["secrets"])
@@ -279,7 +279,7 @@ def test_deps_integration_when_osv_present():
         root = pathlib.Path(tmp)
         # Old, long-since-fixed, and definitely in OSV. Generated at runtime so
         # the repo never carries a vulnerable lockfile of its own.
-        (root / "requirements.txt").write_text("django==2.2.0\n")
+        (root / "requirements.txt").write_text("django==2.2.0\n", encoding="utf-8")
         got = deps.run(root)
         check("osv-scanner output is normalized into Findings",
               [f.engine for f in got][:1], ["deps"])
@@ -370,7 +370,7 @@ def test_no_findings_outside_a_project():
     with tempfile.TemporaryDirectory() as tmp:
         empty = pathlib.Path(tmp)
         check("an empty directory produces nothing", _collect(empty, None), [])
-        (empty / "Cargo.toml").write_text("[package]\n")
+        (empty / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
         check("a real project directory does produce findings",
               len(_collect(empty, None)) > 0, True)
 
@@ -409,7 +409,7 @@ def test_action_does_not_commit_the_injection_it_reports():
     A tool that ships the finding it reports has nothing to say to anyone."""
     import re
     root = pathlib.Path(__file__).resolve().parents[1]
-    body = (root / "action.yml").read_text()
+    body = (root / "action.yml").read_text(encoding="utf-8")
     runs = re.findall(r"run:\s*\|?(.*?)(?=\n    - |\Z)", body, re.S)
     check("no template interpolation inside any run block",
           any("${{" in r for r in runs), False)
@@ -435,7 +435,7 @@ def test_gitlab_image_pinning_understands_registry_ports():
         root = _p.Path(tmp)
         (root / ".gitlab-ci.yml").write_text(
             "build:\n  image: registry.example.com:5000/app@sha256:" + "a" * 64 +
-            "\n  script: [make]\n")
+            "\n  script: [make]\n", encoding="utf-8")
         check("digest-pinned image behind a registry port is not flagged",
               _gitlab.run(root), [])
 
@@ -465,13 +465,13 @@ def test_drill_catches_configured_but_uninstalled_hooks():
         check("no hooks configured at all is reported",
               [f.rule for f in drill.hook_fires(root)], ["DRILL001"])
 
-        (root / ".pre-commit-config.yaml").write_text("repos: []\n")
+        (root / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
         got = drill.hook_fires(root)
         check("configured but not installed is the finding that matters",
               [f.rule for f in got], ["DRILL002"])
         check("and it is high severity", got[0].severity, "high")
 
-        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n")
+        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n", encoding="utf-8")
         got = drill.hook_fires(root)
         check("installed hooks are either exercised or reported unverified",
               [f.rule for f in got] in ([], ["DRILL003"], ["DRILL004"]), True)
@@ -484,8 +484,8 @@ def test_drill_never_passes_what_it_could_not_check():
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         (root / ".git" / "hooks").mkdir(parents=True)
-        (root / ".pre-commit-config.yaml").write_text("repos: []\n")
-        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n")
+        (root / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
+        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n", encoding="utf-8")
         got = drill.run(root, offline=True)
         api = [f for f in got if f.rule == "DRILL010"]
         check("offline mode reports API drills as unverified, not passed",
@@ -513,15 +513,15 @@ def test_drill_cleans_up_even_when_the_hook_fails():
         root = pathlib.Path(tmp)
         (root / ".git" / "hooks").mkdir(parents=True)
         (root / ".git" / "info").mkdir(parents=True)
-        (root / ".pre-commit-config.yaml").write_text("repos: []\n")
-        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n")
+        (root / ".pre-commit-config.yaml").write_text("repos: []\n", encoding="utf-8")
+        (root / ".git" / "hooks" / "pre-commit").write_text("#!/bin/sh\n", encoding="utf-8")
         drill.hook_fires(root)
         check("no canary left behind",
               (root / ".carabiner-drill-canary.key").exists(), False)
         excl = root / ".git" / "info" / "exclude"
         if excl.exists():
             check("and it was git-ignored before being written, not after",
-                  "carabiner-drill-canary" in excl.read_text(), True)
+                  "carabiner-drill-canary" in excl.read_text(encoding="utf-8"), True)
 
 
 def test_accepted_debt_can_expire():
@@ -573,7 +573,7 @@ def test_pr_summary_stays_short():
         with contextlib.redirect_stdout(io.StringIO()):
             cli.main(["scan", "--root", str(FIXTURES / "ci_pull_request_target"),
                       "--summary", str(out)])
-        body = out.read_text()
+        body = out.read_text(encoding="utf-8")
         check("headline carries the counts", body.startswith("### carabiner —"), True)
         check("the critical finding is named", "CI001" in body, True)
         check("it stays short", len(body.splitlines()) <= 14, True)
@@ -586,7 +586,7 @@ def test_version_is_declared_once_and_agrees():
     from carabiner import __version__
     root = pathlib.Path(__file__).resolve().parents[1]
     declared = re.search(r'^version = "([^"]+)"',
-                         (root / "pyproject.toml").read_text(), re.M).group(1)
+                         (root / "pyproject.toml").read_text(encoding="utf-8"), re.M).group(1)
     check("pyproject and __init__ agree", __version__, declared)
     check("and it is not a dev version once tagged",
           ".dev" in declared and (root / ".git").exists() is False, False)
@@ -630,7 +630,7 @@ def test_docs_do_not_drift_or_recommend_mutable_refs():
     from carabiner import __version__
     root = pathlib.Path(__file__).resolve().parents[1]
     for name in ("README.md", "site/index.html"):
-        body = (root / name).read_text()
+        body = (root / name).read_text(encoding="utf-8")
         refs = re.findall(r"carabiner@(\S+?)[<\s`\)]", body)
         refs += re.findall(r"rev:\s*(\S+)", body)
         moving = [r for r in refs if r in ("main", "master", "latest", "HEAD")]
@@ -647,9 +647,34 @@ def test_readme_describes_the_engines_that_exist():
     that stopped being true."""
     from carabiner.engines import ALL
     root = pathlib.Path(__file__).resolve().parents[1]
-    body = (root / "README.md").read_text()
+    body = (root / "README.md").read_text(encoding="utf-8")
     for engine in ALL:
         check(f"README mentions the '{engine}' engine", f"`{engine}`" in body, True)
+
+
+def test_no_text_io_relies_on_the_locale_encoding():
+    """Windows found this: the default text encoding there is cp1252, so a single
+    em dash in a workflow file crashed the whole scan with UnicodeDecodeError.
+
+    A lint, not a runtime check -- the bug lives in code that is never exercised
+    on the platform where it gets written.
+
+    Parsed with ast rather than grepped: the first version matched the words in
+    this very docstring and reported itself. A false positive costs the same
+    trust as a miss, so the fix was a real parser, not a looser pattern.
+    """
+    import ast as _ast
+    root = pathlib.Path(__file__).resolve().parents[1]
+    offenders = []
+    for src in sorted((root / "carabiner").rglob("*.py")) + [pathlib.Path(__file__)]:
+        tree = _ast.parse(src.read_text(encoding="utf-8"))
+        for node in _ast.walk(tree):
+            if (isinstance(node, _ast.Call)
+                    and isinstance(node.func, _ast.Attribute)
+                    and node.func.attr in ("read_text", "write_text")
+                    and not any(k.arg == "encoding" for k in node.keywords)):
+                offenders.append(f"{src.relative_to(root)}:{node.lineno}")
+    check("every text read/write names its encoding", offenders, [])
 
 
 def test_tool_failure_is_never_reported_as_clean():
@@ -660,10 +685,10 @@ def test_tool_failure_is_never_reported_as_clean():
     with tempfile.TemporaryDirectory() as tmp:
         if os.name == "nt":
             fake = pathlib.Path(tmp) / "gitleaks.bat"
-            fake.write_text("@echo unknown command 1>&2\r\n@exit /b 2\r\n")
+            fake.write_text("@echo unknown command 1>&2\r\n@exit /b 2\r\n", encoding="utf-8")
         else:
             fake = pathlib.Path(tmp) / "gitleaks"
-            fake.write_text("#!/bin/sh\necho 'unknown command' >&2\nexit 2\n")
+            fake.write_text("#!/bin/sh\necho 'unknown command' >&2\nexit 2\n", encoding="utf-8")
             fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         got = secrets._scan(str(fake), pathlib.Path(tmp), history=False)
     check("a failing scanner produces a finding, not silence",

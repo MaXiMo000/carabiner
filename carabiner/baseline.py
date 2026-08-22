@@ -22,7 +22,7 @@ def load(root: pathlib.Path) -> dict[str, dict]:
     path = root / BASELINE_PATH
     if not path.exists():
         return {}
-    data = json.loads(path.read_text() or "{}")
+    data = json.loads(path.read_text(encoding="utf-8", errors="replace") or "{}")
     return data.get("accepted", {})
 
 
@@ -65,7 +65,8 @@ def save(root: pathlib.Path, findings: list[Finding], reason: str = "",
             entry["expires"] = deadline
         accepted[f.fingerprint] = entry
     path.write_text(json.dumps(
-        {"version": 1, "accepted": accepted}, indent=2, sort_keys=True) + "\n")
+        {"version": 1, "accepted": accepted}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8")
     return len(accepted)
 
 

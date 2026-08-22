@@ -71,7 +71,7 @@ def run(root: pathlib.Path) -> list[Finding]:
         return []
     rel = str(path.relative_to(root))
     try:
-        doc = yaml.safe_load(path.read_text())
+        doc = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace"))
     except yaml.YAMLError as e:
         return [Finding("ci", "GL000", "low", rel,
                         "GitLab CI config is not parseable YAML",

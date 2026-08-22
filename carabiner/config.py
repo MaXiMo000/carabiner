@@ -67,7 +67,7 @@ def load(root: pathlib.Path) -> Config:
     if not path.exists():
         return Config()
     try:
-        data = yaml.safe_load(path.read_text())
+        data = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace"))
     except yaml.YAMLError as e:
         raise ConfigError(f"{CONFIG_NAME} is not valid YAML: {e}") from e
     if data is not None and not isinstance(data, dict):

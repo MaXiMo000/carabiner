@@ -69,7 +69,7 @@ def run(root: pathlib.Path) -> list[Finding]:
     for wf in sorted((root / WORKFLOWS).glob("*.y*ml")):
         rel = str(wf.relative_to(root))
         try:
-            doc = yaml.safe_load(wf.read_text())
+            doc = yaml.safe_load(wf.read_text(encoding="utf-8", errors="replace"))
         except yaml.YAMLError as e:
             out.append(Finding("ci", "CI000", "low", rel,
                                "workflow is not parseable YAML",

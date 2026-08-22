@@ -77,10 +77,10 @@ def hook_fires(root: pathlib.Path) -> list[Finding]:
     exclude = root / ".git" / "info" / "exclude"
     try:
         if exclude.parent.is_dir():
-            body = exclude.read_text() if exclude.exists() else ""
+            body = exclude.read_text(encoding="utf-8", errors="replace") if exclude.exists() else ""
             if canary.name not in body:
-                exclude.write_text(body.rstrip("\n") + f"\n{canary.name}\n")
-        canary.write_text(CANARY)
+                exclude.write_text(body.rstrip("\n") + f"\n{canary.name}\n", encoding="utf-8")
+        canary.write_text(CANARY, encoding="utf-8")
         r = subprocess.run(["pre-commit", "run", "--files", str(canary)],
                            cwd=root, capture_output=True, text=True,
                            timeout=180, check=False)

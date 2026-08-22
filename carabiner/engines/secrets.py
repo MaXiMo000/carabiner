@@ -99,7 +99,7 @@ def _scan(binary: str, root: pathlib.Path, history: bool) -> list[Finding]:
         if not report.exists():
             return []
         try:
-            return _parse(json.loads(report.read_text() or "[]"), history)
+            return _parse(json.loads(report.read_text(encoding="utf-8", errors="replace") or "[]"), history)
         except (json.JSONDecodeError, ValueError) as e:
             return [_err(f"unparseable report: {e}")]
 
