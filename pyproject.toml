@@ -1,11 +1,18 @@
 [project]
-name = "carabiner"
+# The command stays `carabiner`; the distribution cannot -- that name was
+# already taken on PyPI by an unrelated economics package. A distribution
+# name differing from the command it installs is ordinary (python-dateutil
+# installs `dateutil`).
+name = "carabiner-sec"
 version = "0.1.0.dev0"
 description = "Make any repo secure by default, keep it that way, and prove the controls fire."
 requires-python = ">=3.10"
 # PyYAML and the standard library. That is the whole list, on purpose: every
 # dependency is a package a security auditor now implicitly vouches for.
 dependencies = ["PyYAML>=6"]
+
+urls.Homepage = "https://maximo000.github.io/carabiner/"
+urls.Source = "https://github.com/MaXiMo000/carabiner"
 
 [project.scripts]
 carabiner = "carabiner.cli:main"
