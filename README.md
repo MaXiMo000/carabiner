@@ -6,6 +6,8 @@
 Make any repository secure by default in one command, keep it that way, and
 prove the protections actually fire.
 
+**→ [maximo000.github.io/carabiner](https://maximo000.github.io/carabiner/)**
+
 ```
 $ carabiner scan
   CRITICAL CI001  .github/workflows/pr.yml
