@@ -10,3 +10,5 @@ dist/
 !.env.example
 *.pem
 *.key
+dist/
+build/

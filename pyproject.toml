@@ -4,7 +4,7 @@
 # name differing from the command it installs is ordinary (python-dateutil
 # installs `dateutil`).
 name = "carabiner-sec"
-version = "0.1.1"
+version = "0.1.2"
 description = "Make any repo secure by default, keep it that way, and prove the controls fire."
 requires-python = ">=3.10"
 # PyYAML and the standard library. That is the whole list, on purpose: every
@@ -17,6 +17,13 @@ urls.Source = "https://github.com/MaXiMo000/carabiner"
 [project.scripts]
 carabiner = "carabiner.cli:main"
 cb = "carabiner.cli:main"
+
+# Declared explicitly rather than auto-discovered. Adding site/ gave the repo a
+# second top-level directory and setuptools -- correctly -- refused to guess
+# which one was the package. Naming it means a new sibling directory can never
+# break the build again.
+[tool.setuptools.packages.find]
+include = ["carabiner*"]
 
 [build-system]
 requires = ["setuptools>=68"]
