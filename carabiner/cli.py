@@ -15,6 +15,7 @@ import time
 
 from . import baseline
 from .engines import ALL
+from .engines import missing as engines_missing
 from .finding import rank
 from .report import human
 
@@ -26,15 +27,24 @@ def _collect(root: pathlib.Path, only: list[str] | None):
             continue
         if engine.available(root):
             findings.extend(engine.run(root))
-    # An engine reporting the identical finding twice is a bug; showing it twice
-    # is how a tool loses trust. Also the seam where cross-engine dedup lands --
-    # Trivy and OSV-Scanner both read your lockfile and both report the CVE.
-    seen, unique = set(), []
+    return dedupe(findings)
+
+
+def dedupe(findings):
+    """Collapse identical findings, keeping the most severe.
+
+    Severity is load-bearing, not cosmetic. The same secret found in the working
+    tree AND in history is one problem, but only the history version carries the
+    right remediation -- rotate and purge, not just delete. Keeping whichever
+    arrived first would quietly downgrade it. Same rule covers Trivy and
+    OSV-Scanner disagreeing about a CVE's severity: believe the worse one.
+    """
+    best: dict[str, object] = {}
     for f in findings:
-        if f.fingerprint not in seen:
-            seen.add(f.fingerprint)
-            unique.append(f)
-    return unique
+        prior = best.get(f.fingerprint)
+        if prior is None or rank(f.severity) > rank(prior.severity):
+            best[f.fingerprint] = f
+    return list(best.values())
 
 
 def _gate(new, threshold: str) -> int:
@@ -57,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root.resolve()
     started = time.monotonic()
     findings = _collect(root, args.engines)
+    skipped = engines_missing(root)
     accepted_map = baseline.load(root)
     new, accepted = baseline.partition(findings, accepted_map)
 
@@ -78,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"new": [f.as_dict() for f in new],
                           "accepted": len(accepted)}, indent=2))
     else:
-        print(human.render(new, accepted, time.monotonic() - started))
+        print(human.render(new, accepted, time.monotonic() - started, skipped))
     return _gate(new, args.fail_on)
 
 

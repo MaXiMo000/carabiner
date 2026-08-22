@@ -79,6 +79,84 @@ def test_duplicate_findings_collapse():
           len({f.fingerprint for f in got}), len(got))
 
 
+def test_secrets_parser():
+    """The gitleaks JSON shape, parsed without the binary present.
+
+    Fields are read defensively on purpose -- gitleaks' schema has moved between
+    majors, and an engine that raises on an unknown key takes the whole scan
+    down with it.
+    """
+    from carabiner.engines import secrets
+    payload = [{
+        "RuleID": "aws-access-token", "File": "config/settings.py",
+        "StartLine": 12, "Description": "AWS Access Key",
+        "Match": "aws_key = REDACTED", "Commit": "8f4b7f8486448",
+    }]
+    worktree = secrets._parse(payload, in_history=False)
+    history = secrets._parse(payload, in_history=True)
+
+    check("worktree secret is high", worktree[0].severity, "high")
+    check("secret in history is critical", history[0].severity, "critical")
+    check("history remediation says rotate, not delete",
+          "rotate" in history[0].fix and "purge" in history[0].fix, True)
+    check("rule id is namespaced", worktree[0].rule, "SECRET-aws-access-token")
+    check("line is reported", worktree[0].line, 12)
+
+    garbage = secrets._parse([{"unexpected": "schema"}, "not a dict", None], False)
+    check("unknown schema degrades instead of raising", len(garbage), 1)
+
+
+def test_missing_tool_is_reported_not_swallowed():
+    """A scan claiming '0 findings' while an engine never ran is a lie the user
+    has no way to detect."""
+    from carabiner.engines import secrets, missing
+    import shutil
+    hint = secrets.missing(FIXTURES / "clean")
+    if shutil.which("gitleaks"):
+        check("gitleaks present -> no hint", hint, None)
+    else:
+        check("absent tool yields an install hint", "gitleaks" in (hint or ""), True)
+        names = [n for n, _ in missing(FIXTURES / "clean")]
+        check("and the engine is listed as skipped", "secrets" in names, True)
+
+
+def test_dedup_keeps_the_worse_severity():
+    """The same secret in the working tree and in history is one problem, but
+    only the history version carries the right fix. Collapsing to whichever
+    arrived first would silently downgrade it."""
+    from carabiner.cli import dedupe
+    low = Finding("secrets", "SECRET-aws", "high", "a.py", "worktree", snippet="k=RED")
+    high = Finding("secrets", "SECRET-aws", "critical", "a.py", "history", snippet="k=RED")
+    check("same problem collapses to one finding", len(dedupe([low, high])), 1)
+    check("and keeps the critical one", dedupe([low, high])[0].severity, "critical")
+    check("order does not matter", dedupe([high, low])[0].severity, "critical")
+
+
+def test_secrets_integration_when_gitleaks_present():
+    """Exercises the real binary. Skipped locally when gitleaks is absent; CI
+    installs it so the subprocess path is never shipped unverified.
+
+    The example credential is assembled at runtime rather than written out, so
+    this repository never itself contains a secret-shaped literal for its own
+    scanner (or GitHub's) to trip on.
+    """
+    import shutil, tempfile, subprocess
+    from carabiner.engines import secrets
+    if not shutil.which("gitleaks"):
+        return
+    # AWS's own published, non-functional documentation example.
+    key = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "settings.py").write_text(f'AWS_ACCESS_KEY_ID = "{key}"\n')
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        got = secrets.run(root)
+        check("gitleaks finding is normalized into a Finding",
+              [f.engine for f in got][:1], ["secrets"])
+        check("the raw key never survives into a Finding",
+              any(key in f.snippet for f in got), False)
+
+
 def test_ratchet(tmp=pathlib.Path("/tmp/carabiner-ratchet-test")):
     import shutil
     shutil.rmtree(tmp, ignore_errors=True)
@@ -112,14 +190,17 @@ def test_scan_is_fast_enough():
 def main():
     for fn in (test_fixtures, test_clean_is_silent,
                test_fingerprint_survives_reformatting, test_redaction_is_structural,
-               test_ratchet, test_duplicate_findings_collapse,
+               test_ratchet, test_duplicate_findings_collapse, test_secrets_parser,
+               test_missing_tool_is_reported_not_swallowed,
+               test_dedup_keeps_the_worse_severity,
+               test_secrets_integration_when_gitleaks_present,
                test_scan_is_fast_enough):
         fn()
     if FAILURES:
         print(f"FAIL ({len(FAILURES)})")
         print("\n".join(FAILURES))
         raise SystemExit(1)
-    print("ok  (7 checks)")
+    print("ok  (11 checks)")
 
 
 if __name__ == "__main__":

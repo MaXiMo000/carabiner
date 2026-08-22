@@ -1,11 +1,24 @@
 """Engines. Each exposes `available(root) -> bool` and `run(root) -> [Finding]`.
 
-Native engines (ci, repo) are always available and are why the first run finds
-something real even on a machine with no scanners installed. Wrapped engines
-(secrets, deps, container) arrive in Phase 1 and degrade to an install hint
-rather than a crash.
+Native engines (ci, repo) need nothing installed and are why the first run finds
+something real instead of handing you a shopping list. Wrapped engines expose
+`missing(root) -> str | None` and degrade to an install hint, never a crash: a
+scan that dies because trivy is absent teaches people to stop running scans.
 """
 
-from . import ci, repo
+import pathlib
 
-ALL = {"ci": ci, "repo": repo}
+from . import ci, repo, secrets
+
+ALL = {"ci": ci, "repo": repo, "secrets": secrets}
+
+
+def missing(root: pathlib.Path) -> list[tuple[str, str]]:
+    """[(engine, install hint)] for engines that could contribute here but can't run."""
+    out = []
+    for name, engine in ALL.items():
+        fn = getattr(engine, "missing", None)
+        hint = fn(root) if fn else None
+        if hint:
+            out.append((name, hint))
+    return out

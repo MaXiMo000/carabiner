@@ -17,7 +17,8 @@ def _c(text: str, severity: str) -> str:
     return f"{COLOR.get(severity, '')}{text}{RESET}"
 
 
-def render(new: list[Finding], accepted: list[Finding], elapsed: float) -> str:
+def render(new: list[Finding], accepted: list[Finding], elapsed: float,
+           skipped: list[tuple[str, str]] | None = None) -> str:
     lines = []
     for f in sorted(new, key=lambda x: -rank(x.severity)):
         loc = f"{f.path}:{f.line}" if f.line else f.path
@@ -31,4 +32,8 @@ def render(new: list[Finding], accepted: list[Finding], elapsed: float) -> str:
     if accepted:
         head += f", {len(accepted)} accepted (carabiner debt)"
     lines.append(f"{head}   {elapsed:.2f}s")
+    # Never silently skip an engine. A scan that reports "0 findings" while three
+    # engines never ran is a lie the user has no way to detect.
+    for name, hint in (skipped or []):
+        lines.append(f"  note: engine '{name}' not run -- {hint}")
     return "\n".join(lines)
