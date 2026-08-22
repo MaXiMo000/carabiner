@@ -154,6 +154,13 @@ misconfiguration (running as root, `latest` base tags, secrets in `ENV`).
 
 ### 4.4 ci — **native, no wrapper. This is our own code.**
 
+**GitLab pulled forward from Phase 5.** Covering one CI host made
+"universal" untrue in the place the tool is most original: a GitLab repo
+interpolating a merge-request title into `script:` has the identical
+vulnerability to CI002 and got nothing. The engine now dispatches by host
+(`_github.py`, `_gitlab.py`) and is named `ci` because that is what it
+checks; rule prefixes CI*/GL* keep the host visible in every finding.
+
 GitHub Actions is the most commonly exploited and least commonly scanned part
 of a modern repo, and it is plain YAML. Native checks:
 

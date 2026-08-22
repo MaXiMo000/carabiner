@@ -1,0 +1,5 @@
+default:
+  image: python@sha256:0000000000000000000000000000000000000000000000000000000000000000
+greet:
+  script:
+    - echo "Thanks for $CI_MERGE_REQUEST_TITLE"

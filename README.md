@@ -70,7 +70,8 @@ python3 -m carabiner.cli debt --root /path/to/repo
 
 | Engine | Checks | Needs |
 |---|---|---|
-| `ci` | CI001 `pull_request_target` + PR-head checkout · CI002 script injection from `github.event` into `run:` · CI003 unpinned actions · CI004/5 token blast radius · CI007 self-hosted runners | nothing |
+| `ci` (GitHub Actions) | CI001 `pull_request_target` + PR-head checkout · CI002 script injection from `github.event` into `run:` · CI003 unpinned actions · CI004/5 token blast radius · CI007 self-hosted runners | nothing |
+| `ci` (GitLab CI) | GL001 script injection from merge-request title or branch name · GL002 unpinned remote `include:` · GL003 mutable image/service tags | nothing |
 | `repo` | REPO001 `.gitignore` gaps · REPO002 committed key material · REPO003 no SECURITY.md · REPO004 credentials in git remotes | nothing |
 
 ## What it will never do

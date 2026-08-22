@@ -1,0 +1,9 @@
+include:
+  - project: 'group/templates'
+    ref: 3d3c42e5aac5ba805825da76410c181273ba90b1
+    file: '/ci.yml'
+build:
+  image: python@sha256:1111111111111111111111111111111111111111111111111111111111111111
+  script:
+    - echo "building $CI_COMMIT_REF_SLUG"
+    - make

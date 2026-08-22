@@ -1,0 +1,6 @@
+build:
+  image: python:3.12
+  services:
+    - postgres
+  script:
+    - make

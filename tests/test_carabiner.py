@@ -413,6 +413,44 @@ def test_action_does_not_commit_the_injection_it_reports():
           any("${{" in r for r in runs), False)
 
 
+def test_gitlab_sanitized_variables_are_not_flagged():
+    """CI_COMMIT_REF_SLUG is sanitised by GitLab, so flagging it would be a false
+    positive -- and the fixture suite fails a false positive as hard as a miss."""
+    from carabiner.engines import _gitlab
+    check("the sanitised slug is safe",
+          bool(_gitlab._INJECTABLE.search("echo $CI_COMMIT_REF_SLUG")), False)
+    check("but the raw ref name is not",
+          bool(_gitlab._INJECTABLE.search("echo $CI_COMMIT_REF_NAME")), True)
+    check("braced form is caught too",
+          bool(_gitlab._INJECTABLE.search("echo ${CI_MERGE_REQUEST_TITLE}")), True)
+
+
+def test_gitlab_image_pinning_understands_registry_ports():
+    """A registry port looks like a tag if you split on the wrong colon."""
+    from carabiner.engines import _gitlab
+    import pathlib as _p, tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        root = _p.Path(tmp)
+        (root / ".gitlab-ci.yml").write_text(
+            "build:\n  image: registry.example.com:5000/app@sha256:" + "a" * 64 +
+            "\n  script: [make]\n")
+        check("digest-pinned image behind a registry port is not flagged",
+              _gitlab.run(root), [])
+
+
+def test_both_ci_hosts_are_covered_by_one_engine():
+    """The gap that made 'universal' untrue: a GitLab repo interpolating a merge
+    request title into a script got zero findings while the GitHub equivalent
+    was caught."""
+    from carabiner.engines import ci
+    gh = [f.rule for f in ci.run(FIXTURES / "ci_script_injection")]
+    gl = [f.rule for f in ci.run(FIXTURES / "gitlab_script_injection")]
+    check("GitHub script injection is found", gh, ["CI002"])
+    check("the same bug on GitLab is found too", gl, ["GL001"])
+    check("one engine reports both", {f.engine for f in
+          ci.run(FIXTURES / "gitlab_mutable_image")}, {"ci"})
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
