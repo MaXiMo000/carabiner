@@ -577,6 +577,19 @@ def test_pr_summary_stays_short():
         check("it stays short", len(body.splitlines()) <= 14, True)
 
 
+def test_version_is_declared_once_and_agrees():
+    """Two version constants drift, and the one that drifts is the one stamped
+    into SARIF -- so findings get attributed to a release that never existed."""
+    import re
+    from carabiner import __version__
+    root = pathlib.Path(__file__).resolve().parents[1]
+    declared = re.search(r'^version = "([^"]+)"',
+                         (root / "pyproject.toml").read_text(), re.M).group(1)
+    check("pyproject and __init__ agree", __version__, declared)
+    check("and it is not a dev version once tagged",
+          ".dev" in declared and (root / ".git").exists() is False, False)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
