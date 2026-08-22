@@ -18,9 +18,11 @@ from carabiner.finding import Finding, redact
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 FAILURES = []
+CHECKS = [0]
 
 
 def check(label, got, expected):
+    CHECKS[0] += 1
     if got != expected:
         FAILURES.append(f"  {label}\n    expected {expected!r}\n    got      {got!r}")
 
@@ -162,6 +164,43 @@ def test_secrets_integration_when_gitleaks_present():
               any(body[:40] in f.snippet for f in got), False)
 
 
+def test_ratchet(tmp=pathlib.Path("/tmp/carabiner-ratchet-test")):
+    """Adoption in a legacy repo: accept what exists, fail only on what is new."""
+    import shutil
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    findings = scan(FIXTURES / "ci_unpinned_action")
+    check("fixture has findings to accept", len(findings) > 0, True)
+
+    n = baseline.save(tmp, findings)
+    check("all findings accepted", n, len(findings))
+
+    new, accepted = baseline.partition(findings, baseline.load(tmp))
+    check("accepted findings no longer fail the build", new, [])
+    check("but they are still counted as debt", len(accepted), len(findings))
+
+    fresh = Finding("ci", "CI001", "critical", "new.yml", "brand new")
+    new2, _ = baseline.partition(findings + [fresh], baseline.load(tmp))
+    check("a new finding still fails", [f.rule for f in new2], ["CI001"])
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_scan_is_fast_enough():
+    """Hard budget on the pre-commit path, measured the way it is actually used:
+    one real repository, fast mode. Anything slower gets uninstalled inside a
+    week -- the observed failure mode of every pre-commit security tool.
+
+    Measuring six fixtures at once was the wrong test; CI caught it the moment a
+    real scanner joined the fast path and pushed the total to 2.5s.
+    """
+    from carabiner.cli import _collect
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    start = time.monotonic()
+    _collect(repo, None, full=False)
+    elapsed = time.monotonic() - start
+    check(f"fast scan of one repo under 2s (took {elapsed:.2f}s)", elapsed < 2.0, True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -179,20 +218,17 @@ def test_tool_failure_is_never_reported_as_clean():
 
 
 def main():
-    for fn in (test_fixtures, test_clean_is_silent,
-               test_fingerprint_survives_reformatting, test_redaction_is_structural,
-               test_ratchet, test_duplicate_findings_collapse, test_secrets_parser,
-               test_missing_tool_is_reported_not_swallowed,
-               test_dedup_keeps_the_worse_severity,
-               test_secrets_integration_when_gitleaks_present,
-               test_tool_failure_is_never_reported_as_clean,
-               test_scan_is_fast_enough):
+    # Discovered, not listed. A hand-maintained roster silently stops running
+    # tests the moment an edit drops a name -- which is exactly what happened.
+    tests = [v for k, v in sorted(globals().items())
+             if k.startswith("test_") and callable(v)]
+    for fn in tests:
         fn()
     if FAILURES:
         print(f"FAIL ({len(FAILURES)})")
         print("\n".join(FAILURES))
         raise SystemExit(1)
-    print("ok  (12 checks)")
+    print(f"ok  ({len(tests)} tests, {CHECKS[0]} checks)")
 
 
 if __name__ == "__main__":
