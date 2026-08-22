@@ -1,4 +1,7 @@
-name: carabiner
+# Marketplace display name only. It must be globally unique across every
+# action, user and organisation on GitHub, and plain "carabiner" is taken.
+# The repository, the CLI command and the PyPI distribution are unchanged.
+name: Carabiner Repo Security
 description: Make any repo secure by default, keep it that way, and prove the controls fire.
 branding:
   icon: link
