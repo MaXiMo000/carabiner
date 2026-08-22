@@ -1,3 +1,3 @@
-from . import human
+from . import human, sarif
 
-__all__ = ["human"]
+__all__ = ["human", "sarif"]

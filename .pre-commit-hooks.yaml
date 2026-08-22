@@ -1,0 +1,9 @@
+- id: carabiner
+  name: carabiner
+  description: Fail on new security findings. Existing debt stays accepted.
+  entry: carabiner scan
+  language: python
+  # The scan reads the repository, not a file list, and the ratchet is what
+  # decides pass or fail -- so it runs once per commit rather than per file.
+  pass_filenames: false
+  always_run: true

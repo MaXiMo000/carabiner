@@ -359,6 +359,60 @@ def test_init_dry_run_writes_nothing():
         check("adopted repo is green immediately", code, 0)
 
 
+def test_no_findings_outside_a_project():
+    """Found by sweeping directory shapes: an empty directory was reporting a
+    missing .gitignore and a missing SECURITY.md. Telling someone their empty
+    folder is insecure is precisely the noise that gets a scanner switched off."""
+    import tempfile
+    from carabiner.cli import _collect
+    with tempfile.TemporaryDirectory() as tmp:
+        empty = pathlib.Path(tmp)
+        check("an empty directory produces nothing", _collect(empty, None), [])
+        (empty / "Cargo.toml").write_text("[package]\n")
+        check("a real project directory does produce findings",
+              len(_collect(empty, None)) > 0, True)
+
+
+def test_sarif_is_wellformed():
+    """The Security-tab surface. GitHub rejects the whole upload on a schema
+    error, so a malformed field means zero findings reported, not a warning."""
+    import json
+    from carabiner.report import sarif
+    findings = scan(FIXTURES / "ci_pull_request_target") + [
+        Finding("repo", "REPO003", "low", "SECURITY.md", "no policy")]
+    doc = json.loads(sarif.render(findings))
+    run = doc["runs"][0]
+    check("sarif version", doc["version"], "2.1.0")
+    check("driver is named", run["tool"]["driver"]["name"], "carabiner")
+    check("every result has a rule defined",
+          {r["ruleId"] for r in run["results"]} <=
+          {r["id"] for r in run["tool"]["driver"]["rules"]}, True)
+    check("levels are valid SARIF",
+          {r["level"] for r in run["results"]} <= {"error", "warning", "note"}, True)
+    check("critical maps to error",
+          [r["level"] for r in run["results"] if r["ruleId"] == "CI001"], ["error"])
+    check("fingerprints are attached so GitHub can track across commits",
+          all(r["partialFingerprints"] for r in run["results"]), True)
+    # startLine 0 is invalid SARIF; a finding without a line must omit region.
+    check("no zero startLine",
+          any((r["locations"][0]["physicalLocation"].get("region") or
+               {"startLine": 1})["startLine"] < 1 for r in run["results"]), False)
+    check("rules carry a security-severity for sorting",
+          all("security-severity" in r["properties"]
+              for r in run["tool"]["driver"]["rules"]), True)
+
+
+def test_action_does_not_commit_the_injection_it_reports():
+    """action.yml interpolating ${{ inputs.* }} into a run: block would be CI002.
+    A tool that ships the finding it reports has nothing to say to anyone."""
+    import re
+    root = pathlib.Path(__file__).resolve().parents[1]
+    body = (root / "action.yml").read_text()
+    runs = re.findall(r"run:\s*\|?(.*?)(?=\n    - |\Z)", body, re.S)
+    check("no template interpolation inside any run block",
+          any("${{" in r for r in runs), False)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""

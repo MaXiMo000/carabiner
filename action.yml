@@ -1,0 +1,51 @@
+name: carabiner
+description: Make any repo secure by default, keep it that way, and prove the controls fire.
+branding:
+  icon: link
+  color: orange
+
+inputs:
+  args:
+    description: Extra arguments to `carabiner scan`.
+    default: "--all"
+  sarif:
+    description: Path to write SARIF 2.1.0 to. Empty disables SARIF output.
+    default: carabiner.sarif
+  working-directory:
+    description: Repository root to scan.
+    default: "."
+
+outputs:
+  sarif:
+    description: Path to the SARIF file that was written.
+    value: ${{ inputs.sarif }}
+
+runs:
+  using: composite
+  steps:
+    # Installed from the action's own checkout, so this works before the package
+    # is on PyPI and pins the tool to whatever ref the caller referenced.
+    - shell: bash
+      # github.action_path is runner-set, not attacker-controlled, so this is
+      # not CI002 -- but "no template interpolation inside any run block" is a
+      # cleaner invariant than "only safe interpolation", and it is asserted by
+      # a test rather than left to reviewers to notice.
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: pip install --disable-pip-version-check -q "$ACTION_PATH"
+
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # Inputs go through env rather than into the command line. Interpolating
+      # `${{ inputs.* }}` straight into a run block is CI002 -- the very finding
+      # this tool reports -- and a composite action is not exempt from it.
+      env:
+        CARABINER_ARGS: ${{ inputs.args }}
+        CARABINER_SARIF: ${{ inputs.sarif }}
+      run: |
+        set -euo pipefail
+        if [ -n "$CARABINER_SARIF" ]; then
+          carabiner scan $CARABINER_ARGS --sarif "$CARABINER_SARIF"
+        else
+          carabiner scan $CARABINER_ARGS
+        fi

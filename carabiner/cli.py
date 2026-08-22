@@ -18,7 +18,7 @@ from . import baseline, config
 from .engines import ALL
 from .engines import missing as engines_missing
 from .finding import rank
-from .report import human
+from .report import human, sarif
 
 
 def _collect(root: pathlib.Path, only: list[str] | None, full: bool = False,
@@ -119,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="every engine, whole history. CI cadence, not pre-commit.")
     ap.add_argument("--dry-run", action="store_true", help="init: write nothing")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--sarif", metavar="PATH",
+                    help="write SARIF 2.1.0 for GitHub code scanning")
     # No --token flag, deliberately: argv is world-readable via /proc and CI
     # logs echo commands. Tokens come from the environment only.
     args = ap.parse_args(argv)
@@ -152,6 +154,14 @@ def main(argv: list[str] | None = None) -> int:
                   f"   since {e['first_seen']}")
         print(f"\n{len(accepted_map)} accepted findings")
         return 0
+
+    if args.sarif:
+        # Every finding, not just the new ones: the Security tab is an inventory,
+        # not a diff, and GitHub does its own resolved/new tracking from the
+        # fingerprints. The build gate below still only considers what is new.
+        from . import __version__
+        pathlib.Path(args.sarif).write_text(sarif.render(findings, __version__))
+        print(f"wrote {len(findings)} findings to {args.sarif}")
 
     if args.json:
         print(json.dumps({"new": [f.as_dict() for f in new],

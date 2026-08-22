@@ -17,8 +17,17 @@ KEY_NAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", ".npmrc", ".pypirc"}
 MUST_IGNORE = (".env", "*.pem", "*.key")
 
 
+# Evidence that this directory is a project at all. Without one of these, the
+# repo engine has no business reporting: scanning an empty directory and telling
+# the user it has no .gitignore and no SECURITY.md is exactly the noise that
+# gets a security tool switched off.
+PROJECT_MARKERS = (".git", ".gitignore", ".github", "package.json",
+                   "pyproject.toml", "setup.py", "Cargo.toml", "go.mod",
+                   "pom.xml", "Gemfile", "composer.json", "Makefile")
+
+
 def available(root: pathlib.Path) -> bool:
-    return True
+    return any((root / m).exists() for m in PROJECT_MARKERS)
 
 
 def _tracked(root: pathlib.Path) -> list[str]:
