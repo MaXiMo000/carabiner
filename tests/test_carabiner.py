@@ -522,6 +522,61 @@ def test_drill_cleans_up_even_when_the_hook_fails():
                   "carabiner-drill-canary" in excl.read_text(), True)
 
 
+def test_accepted_debt_can_expire():
+    """Without a deadline, 'accepted' quietly means 'forever' -- which is how a
+    baseline becomes the place debt goes to be forgotten."""
+    import shutil, tempfile
+    from datetime import date, timedelta
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        findings = scan(FIXTURES / "ci_unpinned_action")
+        baseline.save(root, findings, expires_days=30)
+        acc = baseline.load(root)
+        check("an expiry date is recorded",
+              all("expires" in e for e in acc.values()), True)
+        new, old = baseline.partition(findings, acc)
+        check("inside the window it is still accepted", new, [])
+
+        past = (date.today() - timedelta(days=1)).isoformat()
+        for e in acc.values():
+            e["expires"] = past
+        new, old = baseline.partition(findings, acc)
+        check("once the deadline passes it fails the build again",
+              len(new), len(findings))
+        check("and it is reported as overdue", baseline.expired(list(acc.values())[0]), True)
+
+
+def test_fixed_findings_are_noticed():
+    """A review that only ever reports new problems never tells anyone they are
+    winning."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        findings = scan(FIXTURES / "ci_unpinned_action")
+        baseline.save(root, findings)
+        acc = baseline.load(root)
+        check("nothing fixed while the findings remain",
+              baseline.fixed(findings, acc), [])
+        check("removing one is detected as fixed",
+              len(baseline.fixed(findings[:-1], acc)), 1)
+
+
+def test_pr_summary_stays_short():
+    """A bot that restates the whole backlog on every PR gets muted -- and the
+    two lines that mattered get muted with it."""
+    import tempfile, io, contextlib
+    from carabiner import cli
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp) / "s.md"
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.main(["scan", "--root", str(FIXTURES / "ci_pull_request_target"),
+                      "--summary", str(out)])
+        body = out.read_text()
+        check("headline carries the counts", body.startswith("### carabiner —"), True)
+        check("the critical finding is named", "CI001" in body, True)
+        check("it stays short", len(body.splitlines()) <= 14, True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""

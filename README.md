@@ -37,7 +37,8 @@ And the median repository runs none of them, for three specific reasons:
 baseline. From then on CI fails only on what's *new*. You can adopt this in a
 ten-year-old repo on a Tuesday afternoon, and security only tightens from
 there. Accepted findings stay visible via `carabiner debt` — the debt is
-tracked, not deleted.
+tracked, not deleted — and `--expires 90` puts a deadline on it, because
+without one "accepted" quietly means "forever".
 
 Findings are fingerprinted on `(engine, rule, path, normalized snippet)`, never
 on line numbers. Adding an import at the top of a file must not resurrect 400

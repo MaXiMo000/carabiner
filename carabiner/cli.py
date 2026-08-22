@@ -123,6 +123,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--sarif", metavar="PATH",
                     help="write SARIF 2.1.0 for GitHub code scanning")
+    ap.add_argument("--summary", metavar="PATH",
+                    help="write a short markdown summary for a PR comment")
+    ap.add_argument("--expires", type=int, metavar="DAYS",
+                    help="lock: accept these findings for DAYS, then stop")
     # No --token flag, deliberately: argv is world-readable via /proc and CI
     # logs echo commands. Tokens come from the environment only.
     args = ap.parse_args(argv)
@@ -152,18 +156,49 @@ def main(argv: list[str] | None = None) -> int:
     new, accepted = baseline.partition(findings, accepted_map)
 
     if args.command == "lock":
-        n = baseline.save(root, findings)
+        n = baseline.save(root, findings, expires_days=args.expires)
         print(f"ratcheted: {n} findings accepted -> {baseline.BASELINE_PATH}")
+        if args.expires:
+            print(f"expires in {args.expires} days, after which they fail again.")
         print("only new findings will fail the build from here.")
         return 0
 
     if args.command == "debt":
+        gone = baseline.fixed(findings, accepted_map)
+        overdue = 0
         for fp, e in sorted(accepted_map.items(),
                             key=lambda kv: -rank(kv[1]["severity"])):
-            print(f"  {e['severity']:<8} {e['rule']:<8} {e['path']}"
-                  f"   since {e['first_seen']}")
-        print(f"\n{len(accepted_map)} accepted findings")
+            late = baseline.expired(e)
+            overdue += late
+            tail = f"   since {e['first_seen']}"
+            if e.get("expires"):
+                tail += f"   {'OVERDUE since' if late else 'due'} {e['expires']}"
+            print(f"  {e['severity']:<8} {e['rule']:<8} {e['path']}{tail}")
+            if e.get("reason"):
+                print(f"           {e['reason']}")
+        print(f"\n{len(accepted_map)} accepted"
+              + (f", {overdue} overdue" if overdue else "")
+              + (f", {len(gone)} already fixed (run `carabiner lock` to prune)"
+                 if gone else ""))
         return 0
+
+    gone = baseline.fixed(findings, accepted_map)
+    if args.summary:
+        # Deliberately terse. A bot that restates the entire backlog on every PR
+        # gets muted, and then the two lines that mattered are muted with it.
+        bits = [f"**{len(new)} new**"]
+        if gone:
+            bits.append(f"{len(gone)} fixed")
+        bits.append(f"{len(accepted)} accepted")
+        lines = [f"### carabiner — {' · '.join(bits)}", ""]
+        for f in sorted(new, key=lambda x: -rank(x.severity))[:10]:
+            loc = f"`{f.path}`" + (f" line {f.line}" if f.line else "")
+            lines.append(f"- **{f.severity.upper()}** `{f.rule}` {loc} — {f.message}")
+        if len(new) > 10:
+            lines.append(f"- …and {len(new)-10} more")
+        if not new:
+            lines.append("No new findings.")
+        pathlib.Path(args.summary).write_text("\n".join(lines) + "\n")
 
     if args.sarif:
         # Every finding, not just the new ones: the Security tab is an inventory,
@@ -177,7 +212,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"new": [f.as_dict() for f in new],
                           "accepted": len(accepted)}, indent=2))
     else:
-        print(human.render(new, accepted, time.monotonic() - started, skipped))
+        print(human.render(new, accepted, time.monotonic() - started, skipped,
+                           len(gone)))
 
     if args.fail_on:
         worst = max((rank(f.severity) for f in new), default=-1)

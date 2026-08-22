@@ -18,7 +18,8 @@ def _c(text: str, severity: str) -> str:
 
 
 def render(new: list[Finding], accepted: list[Finding], elapsed: float,
-           skipped: list[tuple[str, str]] | None = None) -> str:
+           skipped: list[tuple[str, str]] | None = None,
+           fixed: int = 0) -> str:
     lines = []
     for f in sorted(new, key=lambda x: -rank(x.severity)):
         loc = f"{f.path}:{f.line}" if f.line else f.path
@@ -29,6 +30,8 @@ def render(new: list[Finding], accepted: list[Finding], elapsed: float,
             lines.append(f"           fix: {f.fix}")
         lines.append("")
     head = f"{len(new)} new"
+    if fixed:
+        head += f", {fixed} fixed"
     if accepted:
         head += f", {len(accepted)} accepted (carabiner debt)"
     lines.append(f"{head}   {elapsed:.2f}s")
