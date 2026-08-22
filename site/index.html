@@ -65,11 +65,11 @@ a{color:inherit}
 
 /* ---------- the 3D carabiner ---------- */
 .rig{perspective:1100px;display:flex;justify-content:center;align-items:center;min-height:420px}
-.spin{transform-style:preserve-3d;position:relative;width:230px;height:380px;
-  animation:turn 19s linear infinite}
-@keyframes turn{
-  0%{transform:rotateX(-14deg) rotateY(0deg)}
-  100%{transform:rotateX(-14deg) rotateY(360deg)}
+.spin{transform-style:preserve-3d;position:relative;width:236px;height:392px;
+  transform-origin:50% 6%;animation:sway 11s ease-in-out infinite}
+@keyframes sway{
+  0%,100%{transform:rotateX(-7deg) rotateY(-29deg) rotateZ(-2.5deg)}
+  50%     {transform:rotateX(-7deg) rotateY(29deg)  rotateZ(2.5deg)}
 }
 .spin .sheet{position:absolute;inset:0}
 .spin .sheet svg{width:100%;height:100%;display:block;overflow:visible}
@@ -84,7 +84,7 @@ section{padding:78px 0;border-top:1px solid var(--rule)}
 .fails{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
 .fail{background:var(--alu);padding:30px 26px 34px}
 .fail:hover{background:var(--alu-hi)}
-.fail h3{font-size:19px;margin-bottom:11px;font-variation-settings:'wdth' 110,'wght' 800}
+.fail h3{font-size:19px;margin-bottom:11px;line-height:1.18;font-variation-settings:'wdth' 110,'wght' 800}
 .fail p{margin:0;font-size:15px;color:#3d444a}
 .fail .stamp{display:block;margin-bottom:16px;color:var(--orange)}
 
@@ -358,25 +358,40 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
 (function(){
   const rig = document.getElementById('rig');
   if(!rig) return;
-  const LAYERS = 26, STEP = 0.9;
-  const body = "M115 20 C60 20 26 62 26 128 L26 262 C26 328 60 366 115 366 C150 366 168 348 172 322";
-  const gate = "M172 322 C176 296 168 268 150 250";
+  const LAYERS = 26, STEP = 1.0;
+  // Offset-D: spine down the left, curves top and bottom, gate closing the right.
+  const body = "M148 56 C120 30 74 32 52 56 C34 76 30 106 30 140 L30 248 "
+             + "C30 288 44 322 76 340 C108 358 146 340 152 300";
+  const gate = "M148 56 C160 130 162 230 152 300";
   for(let i=0;i<LAYERS;i++){
     const t = i/(LAYERS-1);
-    // aluminium darkens toward the interior of the extrusion; the front face is brightest
-    const shade = 96 + Math.round(74*Math.pow(t,1.5));
+    // Anodized aluminium reads as a solid dark object on a light bench, not as a
+    // pale shape that dissolves into the background. Back layers recede to near
+    // black; the front face is mid-grey.
+    const s0 = Math.round(60 + 106*Math.pow(t,1.15));
+    const metal = `rgb(${s0},${s0+4},${s0+2})`;
+    const orange = i > LAYERS-5 ? '#e2571f'
+                 : `rgb(${Math.round(s0*1.15)},${Math.round(s0*0.62)},${Math.round(s0*0.40)})`;
     const sheet = document.createElement('div');
     sheet.className='sheet';
     sheet.style.transform = `translateZ(${(i-(LAYERS-1)/2)*STEP}px)`;
     sheet.innerHTML =
       `<svg viewBox="0 0 200 386" fill="none">
-         <path d="${body}" stroke="rgb(${shade},${shade+6},${shade+3})" stroke-width="26"
-               stroke-linecap="round"/>
-         <path d="${gate}" stroke="${i>LAYERS-4?'#e2571f':`rgb(${Math.round(shade*.92)},${Math.round(shade*.55)},${Math.round(shade*.36)})`}"
-               stroke-width="15" stroke-linecap="round"/>
+         <path d="${body}" stroke="${metal}" stroke-width="25" stroke-linecap="round"/>
+         <path d="${gate}" stroke="${orange}" stroke-width="14" stroke-linecap="round"/>
        </svg>`;
     rig.appendChild(sheet);
   }
+  // One specular pass on top: machined aluminium catches a line of light along
+  // the spine. Cheaper and truer than lighting a mesh.
+  const spec = document.createElement('div');
+  spec.className='sheet';
+  spec.style.transform = `translateZ(${((LAYERS-1)/2)*STEP + 0.6}px) translateX(-3px)`;
+  spec.innerHTML =
+    `<svg viewBox="0 0 200 386" fill="none">
+       <path d="${body}" stroke="rgba(255,255,255,.42)" stroke-width="7" stroke-linecap="round"/>
+     </svg>`;
+  rig.appendChild(spec);
 })();
 
 // ---- the ratchet: teeth, and a pawl that refuses to let it back.
