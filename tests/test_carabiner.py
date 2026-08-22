@@ -67,6 +67,16 @@ def test_redaction_is_structural():
           canary in json.dumps(f.as_dict()), False)
     check("a redacted stub is still shown", "..." in f.snippet, True)
     check("short non-token text is left alone", redact("hello world"), "hello world")
+    # Identifiers this tool reports constantly must stay readable. Slashes,
+    # dots and hyphens are separators, not part of a secret.
+    for ident in ("dtolnay/rust-toolchain@stable",
+                  "gcr.io/distroless/base-debian13",
+                  "registry.access.redhat.com/ubi9/ubi-minimal",
+                  ".github/workflows/security-scan.yml"):
+        check(f"{ident} survives redaction", redact(ident), ident)
+    for cred in ("AKIA" + "IOSFODNN7EXAMPLE",
+                 "ghp_16C7e42F292c6912E7710c838347Ae178B4a"):
+        check("but a credential does not", "..." in redact(cred), True)
 
 
 def test_duplicate_findings_collapse():
@@ -972,6 +982,54 @@ def test_informational_findings_are_hidden_but_counted():
         check("and --info lists it", "CI003" in buf2.getvalue(), True)
 
 
+def test_dockerfile_engine_reads_dockerfiles_not_everything_shaped_like_one():
+    """Every rule shipped without spot-checking in this project has been wrong,
+    and this one was no exception: 33 of its first 36 base-image findings were
+    false. Multi-stage `FROM builder` references an earlier stage, `scratch` is
+    a keyword, `${BASE_IMAGE}` is unknowable, and airflow embeds whole Python
+    programs in BuildKit heredocs that were being read as instructions."""
+    import tempfile
+    from carabiner.engines import docker as D
+    def scan(body):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "Dockerfile").write_text(body, encoding="utf-8")
+            return {f.rule for f in D.run(root)}
+
+    check("a stage reference is not an image",
+          "DOCK002" in scan("FROM python:3.13-slim AS build\nFROM build\nUSER 10001\n"), False)
+    check("scratch is not an image",
+          "DOCK002" in scan("FROM scratch\nUSER 10001\n"), False)
+    check("a build arg base is unknowable",
+          "DOCK002" in scan("ARG B=x\nFROM ${B}\nUSER 10001\n"), False)
+    check("a template placeholder is not an image",
+          "DOCK002" in scan("FROM <%= base %>\nUSER 10001\n"), False)
+    check("but a real :latest base is",
+          "DOCK002" in scan("FROM composer:latest\nUSER 10001\n"), True)
+
+    check("heredoc bodies are not parsed as instructions",
+          "DOCK002" in scan("FROM python@sha256:" + "a"*64 +
+                            "\nRUN <<EOF\nfrom __future__ import annotations\nEOF\n"
+                            "USER 10001\n"), False)
+
+    pinned = "FROM python@sha256:" + "a" * 64 + "\n"
+    check("no USER means the container runs as root",
+          "DOCK001" in scan(pinned), True)
+    check("dropping privileges clears it",
+          "DOCK001" in scan(pinned + "USER 10001\n"), False)
+    check("only the final stage matters",
+          "DOCK001" in scan(pinned + "USER 10001\n" + pinned + "USER app\n"), False)
+
+    check("curl piped into a shell is caught",
+          "DOCK004" in scan(pinned + "RUN curl https://x.sh | bash\nUSER 1\n"), True)
+    check("a baked credential is caught",
+          "DOCK003" in scan(pinned + "ENV API_TOKEN=gho_9fJ2kLmQ7xRt\nUSER 1\n"), True)
+    check("a placeholder credential is not",
+          "DOCK003" in scan(pinned + "ENV API_TOKEN=changeme\nUSER 1\n"), False)
+    check("disabled TLS is caught",
+          "DOCK005" in scan(pinned + "RUN pip install --insecure x\nUSER 1\n"), True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -1002,7 +1060,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 51
+    FLOOR = 52
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

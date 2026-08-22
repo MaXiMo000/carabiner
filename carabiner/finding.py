@@ -19,9 +19,13 @@ def rank(severity: str) -> int:
     return SEVERITIES.index(severity) if severity in SEVERITIES else 0
 
 
-# Anything long enough and dense enough to be a credential. Deliberately greedy:
-# over-redacting a YAML fragment costs nothing, under-redacting leaks a key.
-_TOKENY = re.compile(r"[A-Za-z0-9+/=_\-]{20,}")
+# A credential is a long *unbroken* run of token characters. Slashes, dots and
+# hyphens are separators in the identifiers this tool reports constantly --
+# `dtolnay/rust-toolchain@stable` and `gcr.io/distroless/base-debian13` were both
+# being mangled into unreadable stubs, which quietly damaged every finding that
+# named an action or an image. Splitting on those separators keeps identifiers
+# legible while still catching keys, which have no separators to split on.
+_TOKENY = re.compile(r"[A-Za-z0-9+=_]{20,}")
 
 
 def redact(text: str, keep: int = 4) -> str:
