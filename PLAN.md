@@ -135,9 +135,18 @@ Working tree and full history. History matters: a secret deleted in a later
 commit is still in the pack file and still compromised. `init` warns loudly if
 history findings exist, because the remediation is rotation, not deletion.
 
-### 4.2 deps — wraps `pip-audit`, `npm audit`, `osv-scanner`, `cargo audit`
-Selected by what lockfiles exist. Normalizes to one CVE-per-package finding and
-deduplicates across overlapping scanners.
+### 4.2 deps — wraps `osv-scanner`
+
+**Revised during Phase 1, down from four tools to one.** osv-scanner reads
+lockfiles for PyPI, npm, Go, Maven, crates.io, RubyGems and more out of the same
+OSV database pip-audit and npm audit draw from, so shipping four parsers is four
+times the maintenance for the same findings. Add pip-audit only if someone
+reports a case osv-scanner genuinely misses.
+
+Advisory ids are normalized to a canonical form (CVE, then GHSA, then the native
+id) before becoming findings. Without that, one vulnerability reported by two
+scanners is two fingerprints and the developer sees the same problem twice --
+which costs trust faster than a missed finding does.
 
 ### 4.3 container — wraps `trivy`
 Only if a `Dockerfile` or `compose.yml` exists. Image CVEs, plus Dockerfile

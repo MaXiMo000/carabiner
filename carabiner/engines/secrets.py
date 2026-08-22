@@ -18,6 +18,8 @@ import shutil
 import subprocess
 import tempfile
 
+from . import _tool
+
 from ..finding import Finding
 
 REQUIRES = "gitleaks"
@@ -76,41 +78,14 @@ def _parse(payload: list[dict], in_history: bool) -> list[Finding]:
     return out
 
 
-_MODE_CACHE: dict[str, bool] = {}
-
-
-def _modern(binary: str) -> bool:
-    """True if this gitleaks uses `dir`/`git` subcommands rather than `detect`.
-
-    `detect` was removed in gitleaks 8.24; assuming either CLI shape is how a
-    wrapper silently reports "no secrets found" against a binary it never
-    successfully invoked. Probed once, from --help, rather than guessed from a
-    version string.
-    """
-    if binary not in _MODE_CACHE:
-        try:
-            r = subprocess.run([binary, "--help"], capture_output=True,
-                               text=True, timeout=20, check=False)
-            _MODE_CACHE[binary] = "\n  dir " in r.stdout
-        except (OSError, subprocess.SubprocessError):
-            _MODE_CACHE[binary] = False
-    return _MODE_CACHE[binary]
-
-
 def _err(detail: str) -> Finding:
-    """A tool that failed is not a repo that is clean. Say so out loud."""
-    return Finding(
-        engine="secrets", rule="ENGINE-ERROR", severity="low", path=REQUIRES,
-        message=f"gitleaks did not run cleanly, so secrets were NOT checked: {detail}",
-        fix="run the command by hand to see the failure; do not read this scan "
-            "as evidence that the repo is clean",
-        snippet=detail[:120])
+    return _tool.error("secrets", REQUIRES, detail)
 
 
 def _scan(binary: str, root: pathlib.Path, history: bool) -> list[Finding]:
     with tempfile.TemporaryDirectory() as tmp:
         report = pathlib.Path(tmp) / "gitleaks.json"
-        if _modern(binary):
+        if _tool.supports(binary, "\n  dir "):
             cmd = [binary, "git" if history else "dir", str(root)]
         else:
             cmd = [binary, "detect", "--source", str(root)]
@@ -118,18 +93,9 @@ def _scan(binary: str, root: pathlib.Path, history: bool) -> list[Finding]:
                 cmd.append("--no-git")
         cmd += ["--no-banner", "--redact", "--exit-code", str(_LEAKS_FOUND),
                 "--report-format", "json", "--report-path", str(report)]
-        try:
-            # Argument list, never shell=True: a repo path is attacker-controlled
-            # input in the CI threat model. Bounded time, bounded output.
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
-                               check=False)
-        except subprocess.TimeoutExpired:
-            return [_err("timed out after 180s")]
-        except OSError as e:
-            return [_err(str(e))]
-        if r.returncode not in (0, _LEAKS_FOUND):
-            return [_err((r.stderr or r.stdout or "").strip()[-160:]
-                         or f"exit {r.returncode}")]
+        _, err = _tool.invoke(cmd, ok_codes=(0, _LEAKS_FOUND))
+        if err:
+            return [_err(err)]
         if not report.exists():
             return []
         try:

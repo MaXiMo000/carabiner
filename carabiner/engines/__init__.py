@@ -8,9 +8,9 @@ scan that dies because trivy is absent teaches people to stop running scans.
 
 import pathlib
 
-from . import ci, repo, secrets
+from . import ci, deps, repo, secrets
 
-ALL = {"ci": ci, "repo": repo, "secrets": secrets}
+ALL = {"ci": ci, "repo": repo, "secrets": secrets, "deps": deps}
 
 
 def missing(root: pathlib.Path) -> list[tuple[str, str]]:

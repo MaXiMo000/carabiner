@@ -201,6 +201,92 @@ def test_scan_is_fast_enough():
     check(f"fast scan of one repo under 2s (took {elapsed:.2f}s)", elapsed < 2.0, True)
 
 
+def test_deps_advisory_ids_are_normalized():
+    """Two scanners must agree on one id per vulnerability, or the developer
+    sees one problem reported twice -- which costs trust faster than a miss."""
+    from carabiner.engines.deps import canonical_id
+    check("CVE wins over the native id",
+          canonical_id("GHSA-abcd-efgh-ijkl", ["CVE-2024-1234"]), "CVE-2024-1234")
+    check("GHSA is the fallback",
+          canonical_id("PYSEC-2024-99", ["GHSA-abcd-efgh-ijkl"]), "GHSA-abcd-efgh-ijkl")
+    check("native id survives when there is nothing better",
+          canonical_id("PYSEC-2024-99", []), "PYSEC-2024-99")
+    check("aliases may be missing entirely",
+          canonical_id("GHSA-zzzz-zzzz-zzzz", None), "GHSA-zzzz-zzzz-zzzz")
+
+
+def test_deps_parser_and_severity():
+    from carabiner.engines import deps
+    payload = {"results": [{
+        "source": {"path": "/repo/requirements.txt", "type": "lockfile"},
+        "packages": [{
+            "package": {"name": "django", "version": "2.2.0", "ecosystem": "PyPI"},
+            "groups": [{"max_severity": "9.8"}],
+            "vulnerabilities": [
+                {"id": "GHSA-aaaa-bbbb-cccc", "aliases": ["CVE-2019-19844"],
+                 "summary": "Account takeover via password reset"},
+                {"id": "GHSA-dddd-eeee-ffff", "aliases": [],
+                 "database_specific": {"severity": "MODERATE"}, "summary": "x"},
+            ]}]}]}
+    got = sorted(deps._parse(payload, pathlib.Path("/repo")), key=lambda f: f.rule)
+    check("path is made relative to the repo", got[0].path, "requirements.txt")
+    check("canonical id becomes the rule", got[0].rule, "DEP-CVE-2019-19844")
+    check("cvss 9.8 maps to critical", got[0].severity, "critical")
+    check("named MODERATE maps to medium", got[1].severity, "medium")
+    check("package@version is the dedup key", got[0].snippet, "django@2.2.0")
+
+    unscored = deps._parse({"results": [{"source": {"path": "r.txt"}, "packages": [
+        {"package": {"name": "x", "version": "1"},
+         "vulnerabilities": [{"id": "CVE-1", "summary": "s"}]}]}]},
+        pathlib.Path("/repo"))
+    check("an advisory with no score is not quietly downgraded to low",
+          unscored[0].severity, "high")
+    check("unknown schema degrades instead of raising",
+          deps._parse({"results": [{"packages": [{}]}]}, pathlib.Path("/repo")), [])
+
+
+def test_deps_dedups_across_scanners():
+    """The whole point of canonical ids: the same advisory for the same package
+    from two different tools is one finding, at the worse severity."""
+    from carabiner.cli import dedupe
+    osv = Finding("deps", "DEP-CVE-2019-19844", "medium", "requirements.txt",
+                  "django 2.2.0: takeover", snippet="django@2.2.0")
+    other = Finding("deps", "DEP-CVE-2019-19844", "critical", "requirements.txt",
+                    "django 2.2.0: takeover", snippet="django@2.2.0")
+    got = dedupe([osv, other])
+    check("one advisory, one finding", len(got), 1)
+    check("reported at the worse severity", got[0].severity, "critical")
+
+
+def test_deps_stays_quiet_without_dependencies():
+    """Nagging about a missing scanner in a repo with no lockfile is noise, and
+    noise is what gets a security tool switched off."""
+    from carabiner.engines import deps
+    check("no manifest, no install hint", deps.missing(FIXTURES / "clean"), None)
+
+
+def test_deps_integration_when_osv_present():
+    """Exercises the real binary; CI installs it. gitleaks taught this lesson --
+    the CLI shape is probed, not assumed, and an untested subprocess path is a
+    silent empty result waiting to happen."""
+    import shutil, tempfile
+    from carabiner.engines import deps
+    if not shutil.which("osv-scanner"):
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        # Old, long-since-fixed, and definitely in OSV. Generated at runtime so
+        # the repo never carries a vulnerable lockfile of its own.
+        (root / "requirements.txt").write_text("django==2.2.0\n")
+        got = deps.run(root)
+        check("osv-scanner output is normalized into Findings",
+              [f.engine for f in got][:1], ["deps"])
+        check("no ENGINE-ERROR on a healthy run",
+              [f.rule for f in got if f.rule == "ENGINE-ERROR"], [])
+        check("advisories are namespaced under DEP-",
+              all(f.rule.startswith("DEP-") for f in got), True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -214,7 +300,9 @@ def test_tool_failure_is_never_reported_as_clean():
     check("a failing scanner produces a finding, not silence",
           [f.rule for f in got], ["ENGINE-ERROR"])
     check("and the message refuses to imply the repo is clean",
-          "NOT checked" in got[0].message, True)
+          "did NOT happen" in got[0].message, True)
+    check("and the fix says not to read it as evidence of cleanliness",
+          "not read this scan" in got[0].fix, True)
 
 
 def main():
