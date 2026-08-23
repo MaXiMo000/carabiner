@@ -1030,6 +1030,69 @@ def test_dockerfile_engine_reads_dockerfiles_not_everything_shaped_like_one():
           "DOCK005" in scan(pinned + "RUN pip install --insecure x\nUSER 1\n"), True)
 
 
+def test_untrusted_trigger_family():
+    """CI006 and CI008 were promised in PLAN.md and never built. Both are real
+    token-theft routes, and both only matter in combination with a trigger that
+    runs in the base repo's context while handling somebody else's code."""
+    import tempfile
+    from carabiner.engines import ci as C
+
+    def scan(body):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "w.yml").write_text(body, encoding="utf-8")
+            return {f.rule for f in C.run(root)}
+
+    HEAD = "permissions: {contents: read}\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+    CHECKOUT = "      - uses: actions/checkout@v4\n"
+
+    # CI006: a real secret in reach of checked-out contributor code.
+    body = "on: pull_request_target\n" + HEAD + CHECKOUT + \
+           "      - run: npm test\n        env:\n          NPM: ${{ secrets.NPM_TOKEN }}\n"
+    check("secrets in reach of untrusted code", "CI006" in scan(body), True)
+    safe = body.replace("pull_request_target", "pull_request")
+    check("same workflow on a trusted trigger is fine", "CI006" in scan(safe), False)
+    check("GITHUB_TOKEN alone does not count", "CI006" in scan(
+        "on: pull_request_target\n" + HEAD + CHECKOUT +
+        "      - run: gh pr view\n        env:\n          T: ${{ secrets.GITHUB_TOKEN }}\n"), False)
+
+    # CI008: checkout leaves the token in .git/config for every later step.
+    check("persist-credentials left on",
+          "CI008" in scan("on: pull_request_target\n" + HEAD + CHECKOUT), True)
+    check("turning it off clears the finding",
+          "CI008" in scan("on: pull_request_target\n" + HEAD +
+                          "      - uses: actions/checkout@v4\n"
+                          "        with:\n          persist-credentials: false\n"), False)
+
+    # CI010: a cache written from an untrusted trigger can be poisoned.
+    check("cache on an untrusted trigger",
+          "CI010" in scan("on: pull_request_target\n" + HEAD +
+                          "      - uses: actions/cache@v4\n"), True)
+
+
+def test_secrets_inherit_only_matters_across_a_trust_boundary():
+    """Every `secrets: inherit` in a 60-repo corpus called a local reusable
+    workflow -- same repo, same secrets, same reviewers. Flagging those added
+    106 findings that meant nothing."""
+    import tempfile
+    from carabiner.engines import ci as C
+
+    def scan(uses):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "w.yml").write_text(
+                "on: push\npermissions: {contents: read}\njobs:\n  j:\n"
+                f"    uses: {uses}\n    secrets: inherit\n", encoding="utf-8")
+            return {f.rule for f in C.run(root)}
+
+    check("a local reusable workflow is not a finding",
+          "CI009" in scan("./.github/workflows/build.yml"), False)
+    check("someone else's workflow is",
+          "CI009" in scan("other-org/repo/.github/workflows/build.yml@main"), True)
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -1060,7 +1123,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 52
+    FLOOR = 54
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

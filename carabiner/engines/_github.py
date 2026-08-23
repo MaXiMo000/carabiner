@@ -121,6 +121,15 @@ def _perm_writes(perms) -> list[str]:
     return []
 
 
+def _step_text(step: dict) -> str:
+    """Everything in a step that could reference a context, flattened."""
+    import json as _json
+    try:
+        return _json.dumps(step)
+    except (TypeError, ValueError):
+        return str(step)
+
+
 def run(root: pathlib.Path) -> list[Finding]:
     out: list[Finding] = []
     for wf in sorted((root / WORKFLOWS).glob("*.y*ml")):
@@ -182,6 +191,86 @@ def run(root: pathlib.Path) -> list[Finding]:
                     f"top-level write permission granted ({w})",
                     fix="move the write scope onto the single job that needs it",
                     snippet=f"permissions {w}"))
+
+        # ---- the untrusted-trigger family -------------------------------
+        # pull_request_target and workflow_run both run in the context of the
+        # base repository, with its secrets and a write token, while the code
+        # being handled belongs to whoever opened the pull request. Everything
+        # below is only a finding because of that combination.
+        for job_name, job in (doc.get("jobs") or {}).items():
+            if not isinstance(job, dict) or not risky_trigger:
+                continue
+            steps = [s for s in (job.get("steps") or []) if isinstance(s, dict)]
+            blob = " ".join(_step_text(s) for s in steps) + _step_text(
+                {k: v for k, v in job.items() if k != "steps"})
+
+            # CI006 -- a real secret in reach of code the attacker supplied.
+            secrets_used = set(re.findall(
+                r"secrets\.([A-Za-z_][A-Za-z0-9_]*)", blob))
+            secrets_used.discard("GITHUB_TOKEN")
+            if secrets_used and any("uses" in s and "checkout" in str(s.get("uses", ""))
+                                    for s in steps):
+                out.append(Finding(
+                    "ci", "CI006", "high", rel,
+                    f"job '{job_name}' runs on an untrusted trigger, checks out "
+                    f"code, and has repository secrets in scope "
+                    f"({', '.join(sorted(secrets_used)[:3])}) -- anything the "
+                    "checked-out code executes can read them",
+                    fix="split it: an unprivileged job that handles the PR code, "
+                        "and a privileged job that never checks it out",
+                    snippet=", ".join(sorted(secrets_used)[:3])))
+
+            # CI008 -- checkout leaves the token in .git/config unless told not
+            # to, and every later step in the job can read it.
+            for st in steps:
+                if "checkout" not in str(st.get("uses", "")):
+                    continue
+                with_ = st.get("with") or {}
+                if str(with_.get("persist-credentials", "")).lower() != "false":
+                    out.append(Finding(
+                        "ci", "CI008", "high", rel,
+                        f"job '{job_name}' checks out on an untrusted trigger "
+                        "without `persist-credentials: false` -- the token stays "
+                        "in .git/config and any later step, including one running "
+                        "the contributor's build scripts, can read it",
+                        fix="set `persist-credentials: false` on the checkout, or "
+                            "do not check out untrusted code in a privileged job",
+                        snippet="persist-credentials not disabled"))
+                    break
+
+            # CI010 -- a cache written from an untrusted trigger is a cache the
+            # attacker can poison for later privileged runs.
+            if any("actions/cache" in str(s.get("uses", "")) for s in steps):
+                out.append(Finding(
+                    "ci", "CI010", "medium", rel,
+                    f"job '{job_name}' restores and saves a cache on an untrusted "
+                    "trigger -- a poisoned entry is replayed into later runs",
+                    fix="use actions/cache/restore with a read-only key here, and "
+                        "save the cache only from trusted branches",
+                    snippet="actions/cache on an untrusted trigger"))
+
+        # CI009 -- `secrets: inherit` hands every repository secret to another
+        # workflow file, including whatever that file grows into later.
+        for job_name, job in (doc.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            if str(job.get("secrets", "")).lower() != "inherit":
+                continue
+            called = str(job.get("uses", ""))
+            # Inheriting into your own reusable workflow crosses no trust
+            # boundary -- same repository, same secrets, same reviewers. Every
+            # one of these in a 60-repo corpus was local, and flagging them
+            # would have added 106 findings that mean nothing. The risk is
+            # handing every secret to a workflow someone else controls.
+            if called.startswith("./") or not called:
+                continue
+            out.append(Finding(
+                "ci", "CI009", "high" if risky_trigger else "medium", rel,
+                f"job '{job_name}' calls `{called}` with `secrets: inherit` -- a "
+                "workflow in another repository receives every secret you have, "
+                "including ones added long after this line was written",
+                fix="pass named secrets explicitly under `secrets:`",
+                snippet=called))
 
         for job_name, job, step in _steps(doc):
             # CI002 -- script injection. The PR title becomes shell.
