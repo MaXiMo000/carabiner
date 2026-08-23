@@ -109,7 +109,28 @@ def _scan(binary: str, root: pathlib.Path, history: bool) -> list[Finding]:
             return [_err(f"unparseable report: {e}")]
 
 
-def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
+def _scan_staged(binary: str, root: pathlib.Path) -> list[Finding]:
+    """gitleaks' own pre-commit mode. Filtering a whole-tree scan afterwards
+    saves nothing -- the work has already happened -- so diff mode has to stop
+    the scan being done, not hide its results."""
+    with tempfile.TemporaryDirectory() as tmp:
+        report = pathlib.Path(tmp) / "gitleaks.json"
+        cmd = [binary, "git", "--staged", str(root), "--no-banner", "--redact",
+               "--exit-code", str(_LEAKS_FOUND),
+               "--report-format", "json", "--report-path", str(report)]
+        _, err = _tool.invoke(cmd, ok_codes=(0, _LEAKS_FOUND))
+        if err:
+            return [_err(err)]
+        if not report.exists():
+            return []
+        try:
+            return _parse(json.loads(report.read_text(encoding="utf-8", errors="replace") or "[]"), False)
+        except (json.JSONDecodeError, ValueError) as e:
+            return [_err(f"unparseable report: {e}")]
+
+
+def run(root: pathlib.Path, full: bool = False,
+        changed: set[str] | None = None) -> list[Finding]:
     """History scanning is `full` only.
 
     Rewalking every commit is seconds, not milliseconds, and a pre-commit hook
@@ -119,7 +140,14 @@ def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
     binary = _bin()
     if not binary:
         return []
+    if changed is not None:
+        # Only what is about to be committed. Whole-tree scanning here is what
+        # made --diff slower than a full scan in the first implementation.
+        return _scan_staged(binary, root)
     findings = _scan(binary, root, history=False)
     if full and (root / ".git").exists():
         findings += _scan(binary, root, history=True)
+    if changed is not None:
+        findings = [f for f in findings
+                    if f.path in changed or f.rule == "ENGINE-ERROR"]
     return findings

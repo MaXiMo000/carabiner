@@ -169,7 +169,31 @@ def _key_material(path: pathlib.Path, name: pathlib.PurePosixPath) -> str | None
     return None
 
 
-def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
+def changed_files(root: pathlib.Path) -> set[str] | None:
+    """What this commit is about to touch: staged, unstaged and untracked.
+
+    Returns None when git cannot answer, which callers must treat as "scan
+    everything" -- a diff scan that silently sees no files would report a clean
+    repo, which is the failure mode this project exists to complain about.
+    """
+    out: set[str] = set()
+    ok = False
+    for args in (["diff", "--name-only", "--cached"],
+                 ["diff", "--name-only", "HEAD"],
+                 ["ls-files", "--others", "--exclude-standard"]):
+        try:
+            r = subprocess.run(["git", *args], cwd=root, capture_output=True,
+                               text=True, timeout=30, check=False)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.returncode == 0:
+            ok = True
+            out.update(line.strip() for line in r.stdout.splitlines() if line.strip())
+    return out if ok else None
+
+
+def run(root: pathlib.Path, full: bool = False,
+        changed: set[str] | None = None) -> list[Finding]:
     out: list[Finding] = []
 
     gitignore = root / ".gitignore"
@@ -224,4 +248,8 @@ def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
                             fix="use a credential helper or SSH; this value is "
                                 "readable by anything that can read the repo dir",
                             snippet=line.strip()))
-    return out
+    return _filter(out, changed)
+
+
+def _filter(out, changed):
+    return out if changed is None else [f for f in out if f.path in changed]

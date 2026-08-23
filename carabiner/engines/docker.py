@@ -99,7 +99,8 @@ def _logical_lines(text: str):
         yield start, buf.strip()
 
 
-def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
+def run(root: pathlib.Path, full: bool = False,
+        changed: set[str] | None = None) -> list[Finding]:
     out: list[Finding] = []
     for df in sorted(_dockerfiles(root)):
         rel = str(df.relative_to(root))
@@ -187,4 +188,8 @@ def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
                         "runs as root",
                 fix="add `USER 10001` (or any non-root uid) before CMD",
                 snippet="no USER instruction"))
-    return out
+    return _filter(out, changed)
+
+
+def _filter(out, changed):
+    return out if changed is None else [f for f in out if f.path in changed]

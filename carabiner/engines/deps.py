@@ -174,7 +174,8 @@ def _parse(payload: dict, root: pathlib.Path) -> list[Finding]:
     return out
 
 
-def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
+def run(root: pathlib.Path, full: bool = False,
+        changed: set[str] | None = None) -> list[Finding]:
     binary = _bin()
     if not binary or not has_manifest(root):
         return []

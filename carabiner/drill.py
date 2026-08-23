@@ -171,6 +171,37 @@ def github_controls(root: pathlib.Path) -> list[Finding]:
             "Settings -> Actions -> set the default to read-only and widen per "
             "job", snippet="default_workflow_permissions: write"))
 
+    # DRILL017 -- Dependabot alerts: the cheapest control there is, and one
+    # people believe is on because the config file exists.
+    alerts, err = _get(f"/repos/{slug}/vulnerability-alerts", token)
+    if err == "HTTP 404":
+        out.append(_finding(
+            "DRILL017", "medium", "Dependabot vulnerability alerts are disabled",
+            "Settings -> Code security -> enable Dependabot alerts; a "
+            "dependabot.yml in the repo does not switch them on"))
+    elif err and err != "HTTP 204":
+        out.append(_unverified("DRILL017", "Dependabot alerts", err))
+
+    # DRILL018 -- a SARIF upload that fails is a Security tab that stays empty
+    # while CI stays green. Ask what actually arrived.
+    analyses, err = _get(f"/repos/{slug}/code-scanning/analyses?per_page=1", token)
+    if err == "HTTP 404":
+        out.append(_finding(
+            "DRILL018", "medium",
+            "no code scanning results have ever been received -- if a workflow "
+            "uploads SARIF, that upload is failing silently",
+            "check the upload-sarif step; a rejected SARIF file does not fail "
+            "the job that produced it"))
+    elif err:
+        out.append(_unverified("DRILL018", "code scanning results", err))
+    elif isinstance(analyses, list) and analyses:
+        created = str(analyses[0].get("created_at", ""))[:10]
+        tool = ((analyses[0].get("tool") or {}).get("name")) or "?"
+        out.append(_finding(
+            "DRILL018", "info",
+            f"code scanning last received results from {tool} on {created}",
+            "informational -- confirms the upload path works"))
+
     # DRILL013 -- protection on the default branch, and whether it is real.
     branch = repo.get("default_branch") or "main"
     prot, err = _get(f"/repos/{slug}/branches/{branch}/protection", token)

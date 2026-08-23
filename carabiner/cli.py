@@ -24,7 +24,8 @@ from .report import human, sarif
 
 
 def _collect(root: pathlib.Path, only: list[str] | None, full: bool = False,
-             cfg: config.Config | None = None, offline: bool = False):
+             cfg: config.Config | None = None, offline: bool = False,
+             changed: set[str] | None = None):
     cfg = cfg or config.Config()
     findings = []
     for name, engine in ALL.items():
@@ -41,7 +42,7 @@ def _collect(root: pathlib.Path, only: list[str] | None, full: bool = False,
         if not full and engines_full_only(name) and not only:
             continue
         if engine.available(root):
-            findings.extend(engine.run(root, full))
+            findings.extend(engine.run(root, full, changed))
     return [f for f in dedupe(findings) if not cfg.ignored(f)]
 
 
@@ -128,6 +129,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", dest="full",
                     help="every engine, whole history. CI cadence, not pre-commit.")
     ap.add_argument("--dry-run", action="store_true", help="init: write nothing")
+    ap.add_argument("--diff", action="store_true",
+                    help="only what this commit touches: staged, unstaged and "
+                         "untracked files. The pre-commit path.")
     ap.add_argument("--info", action="store_true",
                     help="also list informational findings, which are hidden by "
                          "default and only counted")
@@ -163,8 +167,20 @@ def main(argv: list[str] | None = None) -> int:
         return cfg.gate(found)
 
     started = time.monotonic()
-    findings = _collect(root, args.engines, args.full, cfg, args.offline)
+    changed = None
+    if args.diff:
+        from .engines.repo import changed_files
+        changed = changed_files(root)
+        if changed is None:
+            # Never silently degrade into "nothing changed, therefore clean".
+            print("error: --diff needs a git repository; git could not list "
+                  "changed files", file=sys.stderr)
+            return 2
+    findings = _collect(root, args.engines, args.full, cfg, args.offline, changed)
     skipped = engines_missing(root)
+    if args.diff:
+        skipped.append(("--diff", f"only the {len(changed)} changed file(s) were "
+                                  "examined; run without --diff for the whole tree"))
     if not args.full:
         skipped += [(n, "fast path; run `carabiner scan --all` in CI for this one")
                     for n in ALL if engines_full_only(n)

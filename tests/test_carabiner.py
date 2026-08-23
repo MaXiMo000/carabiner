@@ -1093,6 +1093,98 @@ def test_secrets_inherit_only_matters_across_a_trust_boundary():
           "CI009" in scan("other-org/repo/.github/workflows/build.yml@main"), True)
 
 
+def test_diff_mode_scans_only_what_changed():
+    """The pre-commit path. Filtering results after a full scan saves nothing --
+    the first implementation was slower than a full scan because of exactly
+    that -- so the engines must not do the work, not merely hide it."""
+    import subprocess, tempfile
+    from carabiner.engines.repo import changed_files
+    from carabiner.cli import _collect
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        (root / ".github" / "workflows").mkdir(parents=True)
+        wf = "on: push\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n" \
+             "      - uses: vendor/act@main\n"
+        (root / ".github" / "workflows" / "old.yml").write_text(wf, encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "x"], cwd=root, check=True)
+
+        (root / ".github" / "workflows" / "new.yml").write_text(wf, encoding="utf-8")
+        changed = changed_files(root)
+        check("the new file is seen as changed",
+              ".github/workflows/new.yml" in (changed or set()), True)
+        check("the committed one is not",
+              ".github/workflows/old.yml" in (changed or set()), False)
+
+        everything = {f.path for f in _collect(root, ["ci"])}
+        only_new = {f.path for f in _collect(root, ["ci"], changed=changed)}
+        check("a full scan sees both", len(everything), 2)
+        check("a diff scan sees only the changed file",
+              only_new, {".github/workflows/new.yml"})
+
+
+def test_kubernetes_engine():
+    """K8S005's first two findings were both real values that were not
+    credentials: airflow's SECRET_NAME holds the *name* of a Secret, and etcd's
+    INITIAL_CLUSTER_TOKEN is a cluster identifier."""
+    import tempfile
+    from carabiner.engines import kubernetes as K
+    def scan(spec):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "d.yaml").write_text(
+                "apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n" + spec,
+                encoding="utf-8")
+            return {f.rule for f in K.run(root)}
+
+    SAFE = ("  containers:\n  - name: c\n    image: x\n    securityContext:\n"
+            "      runAsNonRoot: true\n      runAsUser: 10001\n")
+    check("a hardened pod is clean", scan(SAFE), set())
+    check("hostNetwork is caught", "K8S001" in scan("  hostNetwork: true\n" + SAFE), True)
+    check("privileged is critical",
+          "K8S002" in scan("  containers:\n  - name: c\n    image: x\n"
+                           "    securityContext:\n      privileged: true\n"
+                           "      runAsNonRoot: true\n"), True)
+    check("nothing stopping root is caught",
+          "K8S004" in scan("  containers:\n  - name: c\n    image: x\n"), True)
+
+    env = SAFE + "    env:\n    - name: {k}\n      value: \"{v}\"\n"
+    check("a Secret's *name* is not a credential",
+          "K8S005" in scan(env.format(k="SECRET_NAME", v="release-kerberos-keytab")), False)
+    check("a cluster identifier is not either",
+          "K8S005" in scan(env.format(k="ETCD_INITIAL_CLUSTER_TOKEN", v="etcd-cluster-1")), False)
+    check("but a high-entropy literal is",
+          "K8S005" in scan(env.format(k="API_TOKEN", v="gho_9fJ2kLmQ7xRt4NpZa1Bc")), True)
+
+
+def test_jenkins_circleci_and_azure():
+    """The same vulnerability in three dialects: text somebody else controls
+    reaching a shell without ever becoming data."""
+    import tempfile
+    from carabiner.engines import _otherci as O
+    def scan(name, body):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp); p = root / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body, encoding="utf-8")
+            return [f.rule for f in O.run(root)]
+
+    check("Groovy interpolates a param into the shell",
+          scan("Jenkinsfile", 'pipeline { steps { sh "echo ${params.B}" } }\n'), ["JEN001"])
+    check("single quotes do not interpolate",
+          scan("Jenkinsfile", "pipeline { steps { sh 'echo $B' } }\n"), [])
+    check("a case-insensitive filesystem does not double-report",
+          len(scan("Jenkinsfile", 'sh "echo ${params.B}"\n')), 1)
+    check("a volatile orb is caught",
+          "CIR001" in scan(".circleci/config.yml",
+                           "orbs:\n  n: circleci/node@volatile\n"), True)
+    check("an Azure branch name in a script is caught",
+          scan("azure-pipelines.yml",
+               "steps:\n- script: echo $(Build.SourceBranchName)\n"), ["AZP001"])
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -1123,7 +1215,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 54
+    FLOOR = 57
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

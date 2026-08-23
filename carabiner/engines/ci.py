@@ -13,19 +13,22 @@ from __future__ import annotations
 
 import pathlib
 
-from . import _github, _gitlab
+from . import _github, _gitlab, _otherci
 from ..finding import Finding
 
-HOSTS = (_github, _gitlab)
+HOSTS = (_github, _gitlab, _otherci)
 
 
 def available(root: pathlib.Path) -> bool:
     return any(h.available(root) for h in HOSTS)
 
 
-def run(root: pathlib.Path, full: bool = False) -> list[Finding]:
+def run(root: pathlib.Path, full: bool = False,
+        changed: set[str] | None = None) -> list[Finding]:
     out: list[Finding] = []
     for host in HOSTS:
         if host.available(root):
             out.extend(host.run(root))
+    if changed is not None:
+        out = [f for f in out if f.path in changed]
     return out

@@ -8,9 +8,10 @@ scan that dies because trivy is absent teaches people to stop running scans.
 
 import pathlib
 
-from . import ci, deps, docker, repo, secrets
+from . import ci, deps, docker, kubernetes, repo, secrets
 
-ALL = {"ci": ci, "repo": repo, "docker": docker, "secrets": secrets, "deps": deps}
+ALL = {"ci": ci, "repo": repo, "docker": docker, "kubernetes": kubernetes,
+       "secrets": secrets, "deps": deps}
 
 
 def networked(name: str) -> bool:

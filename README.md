@@ -78,7 +78,8 @@ each time. Emitted as SARIF so findings land in the PR Security tab.
 
 ```bash
 carabiner init          # detect, configure, ratchet. Once per repo.
-carabiner scan          # what is new. Pre-commit and CI. Under 2s.
+carabiner scan          # what is new. Pre-commit and CI.
+carabiner scan --diff   # only what this commit touches. The pre-commit path.
 carabiner scan --all    # every engine, whole history. CI cadence.
 carabiner drill         # prove the controls fire. After init, and weekly.
 carabiner scan --info   # also list informational findings (hidden by default).
@@ -99,7 +100,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: MaXiMo000/carabiner@v0.1.15
+  - uses: MaXiMo000/carabiner@v0.2.0
   - uses: github/codeql-action/upload-sarif@v3
     with:
       sarif_file: carabiner.sarif
@@ -116,7 +117,7 @@ whole backlog restated every time.
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash
-docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.1.15 scan --all
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.2.0 scan --all
 ```
 
 The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its
@@ -128,7 +129,7 @@ build-provenance attestation.
 ```yaml
 repos:
   - repo: https://github.com/MaXiMo000/carabiner
-    rev: v0.1.15
+    rev: v0.2.0
     hooks:
       - id: carabiner
 ```
@@ -147,6 +148,8 @@ the budget.
 | `ci` — GitHub Actions | CI001 `pull_request_target` + PR-head checkout · CI002 script injection from `github.event` into `run:` · CI003 unpinned actions · CI004/5 token blast radius · CI006 secrets in reach of checked-out contributor code · CI007 self-hosted runners · CI008 `persist-credentials` left on · CI009 `secrets: inherit` across repos · CI010 cache poisoning | nothing |
 | `ci` — GitLab CI | GL001 script injection from a merge-request title or branch name · GL002 unpinned remote `include:` · GL003 mutable image and service tags | nothing |
 | `repo` | REPO001 `.gitignore` gaps · REPO002 committed key material · REPO003 no disclosure policy · REPO004 credentials in git remotes | nothing |
+| `ci` — Jenkins / CircleCI / Azure | JEN001 Groovy interpolation into `sh` · JEN002 literal credential in a pipeline · CIR001 `@volatile` orb · CIR002 pipeline parameter into a run step · AZP001 branch name into a script | nothing |
+| `kubernetes` | K8S001 `hostNetwork`/`hostPID`/`hostIPC` · K8S002 privileged container · K8S003 privilege escalation · K8S004 nothing preventing root · K8S005 a literal credential in `env` | nothing |
 | `docker` | DOCK001 final stage never drops root · DOCK002 untagged or `:latest` base · DOCK003 credential baked into `ARG`/`ENV` · DOCK004 remote script piped into a shell · DOCK005 TLS verification disabled at build time | nothing |
 | `secrets` | working tree every commit; history behind `--all` and one severity higher, because deleting the file is not remediation | `gitleaks` |
 | `deps` | lockfile advisories across PyPI, npm, Go, Maven, crates.io and more; ids normalised to CVE so two scanners cannot report one problem twice | `osv-scanner` |
