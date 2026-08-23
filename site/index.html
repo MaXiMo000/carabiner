@@ -66,15 +66,6 @@ a{color:inherit}
 /* ---------- the 3D carabiner ---------- */
 .rig{position:relative;display:flex;justify-content:center;align-items:center;
   min-height:460px;perspective:1100px}
-.cursor{position:fixed;top:0;left:0;width:26px;height:26px;border:1.5px solid var(--gun);
-  border-radius:50%;pointer-events:none;z-index:60;mix-blend-mode:difference;
-  transform:translate(-50%,-50%);transition:width .18s,height .18s,opacity .2s;opacity:0}
-.cursor.on{opacity:.55}
-.cursor.big{width:56px;height:56px;opacity:.25}
-@media(hover:none){.cursor{display:none}}
-/* Film grain, the one piece of atmosphere on an otherwise flat page. */
-body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;opacity:.05;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E")}
 .spin{transform-style:preserve-3d;position:relative;width:236px;height:392px;
   transform-origin:50% 6%;animation:sway 11s ease-in-out infinite}
 @keyframes sway{
@@ -374,25 +365,6 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
 // A site that freezes the browser is worse than one without a shader, and the
 // CSS-extruded carabiner below was verified working and reads correctly. Shipping
 // the version that works.
-
-// ---- a cursor that reacts to what it is over
-(function(){
-  if(matchMedia('(hover:none)').matches) return;
-  const dot = document.createElement('div');
-  dot.className = 'cursor'; document.body.appendChild(dot);
-  let x = innerWidth/2, y = innerHeight/2, tx = x, ty = y;
-  addEventListener('mousemove', e => {
-    tx = e.clientX; ty = e.clientY; dot.classList.add('on');
-  }, {passive:true});
-  addEventListener('mouseover', e => {
-    dot.classList.toggle('big', !!e.target.closest('a,button,[role=tab]'));
-  }, {passive:true});
-  (function loop(){
-    x += (tx-x)*0.2; y += (ty-y)*0.2;
-    dot.style.transform = `translate(${x}px,${y}px) translate(-50%,-50%)`;
-    requestAnimationFrame(loop);
-  })();
-})();
 
 // ---- the carabiner, extruded. Layered SVG sheets in real 3D perspective:
 // no library, no mesh, just depth built one plane at a time.
