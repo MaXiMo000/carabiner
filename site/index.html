@@ -417,18 +417,23 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
     q.xz *= rot(uScroll*2.4 + uMouse.x*0.5);
     q.yz *= rot(uMouse.y*0.28);
 
-    // Oblong body: squash before evaluating, rescale the distance after.
-    vec3 b = q; b.y *= 0.72;
-    float body = sdCappedTorus(b, vec2(0.86,0.51), 1.0, 0.115) / 0.78;
+    // No non-uniform squash. Scaling an axis breaks the distance field -- the
+    // marcher then overshoots and the surface comes apart, which is exactly
+    // what the first render did. A round body is a valid field and still reads
+    // as a carabiner.
+    float body = sdCappedTorus(q, vec2(0.82, 0.57), 1.05, 0.125);
 
     // The gate, hinged at the base, swinging open as the page scrolls.
-    float a = uGate*0.62;
-    vec3  hinge = vec3(0.60,-0.78,0.0);
-    vec3  nose  = vec3(0.60 + sin(a)*0.30, 0.80 - (1.0-cos(a))*0.30, sin(a)*0.55);
-    float gate = sdCapsule(q, hinge, nose, 0.072);
+    float a = uGate*0.55;
+    vec3  hinge = vec3(0.86, -0.60, 0.0);
+    vec3  nose  = vec3(0.86, 0.60, 0.0);
+    nose.xz = mix(nose.xz, vec2(0.50, 0.62), a);
+    float gate = sdCapsule(q, hinge, nose, 0.082);
 
-    float d = smin(body, gate, 0.03);
-    return vec2(d, d == gate || gate < body + 0.001 ? 1.0 : 0.0);
+    // Plain min with the material carried alongside. smin blends the surfaces
+    // beautifully and destroys the material id, so nearly every pixel came back
+    // as the gate and the whole object rendered orange.
+    return body < gate ? vec2(body, 0.0) : vec2(gate, 1.0);
   }
 
   vec3 normal(vec3 p){
@@ -457,14 +462,14 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
 
   void main(){
     vec2 uv = (gl_FragCoord.xy - 0.5*uRes) / uRes.y;
-    vec3 ro = vec3(0.0, 0.0, 3.5);
-    vec3 rd = normalize(vec3(uv, -1.85));
+    vec3 ro = vec3(0.0, 0.0, 4.7);
+    vec3 rd = normalize(vec3(uv, -1.7));
 
     // The whole object fits inside a sphere of radius 1.7. Testing that first
     // costs a dot product and skips the march for most of the screen -- without
     // it this shader evaluates the field a hundred million times a frame and
     // hangs the tab.
-    float b = dot(ro, rd), c = dot(ro, ro) - 1.7*1.7;
+    float b = dot(ro, rd), c = dot(ro, ro) - 1.55*1.55;
     float disc = b*b - c;
     float t = 0.0; vec2 hit = vec2(-1.0);
     if(disc > 0.0){
@@ -507,8 +512,8 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
       // Contact shadow on the page itself, so the object sits on the ground
       // rather than floating in front of it.
       float r = length(uv*3.1);
-      float d = r > 2.6 ? 1.0 : map(vec3(uv*3.1, 0.0)).x;
-      float s = smoothstep(0.55, 0.0, d);
+      float d = r > 2.2 ? 1.0 : map(vec3(uv*2.6, 0.0)).x;
+      float s = smoothstep(0.42, 0.0, d);
       col = GROUND - vec3(0.10,0.10,0.095)*s*0.5;
       alpha = s*0.30;
     }
