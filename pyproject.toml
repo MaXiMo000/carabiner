@@ -4,7 +4,7 @@
 # name differing from the command it installs is ordinary (python-dateutil
 # installs `dateutil`).
 name = "carabiner-sec"
-version = "0.2.0"
+version = "0.2.1"
 description = "Make any repo secure by default, keep it that way, and prove the controls fire."
 requires-python = ">=3.10"
 # Without this the PyPI page is blank, which is the first thing anyone

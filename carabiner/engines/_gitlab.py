@@ -69,7 +69,7 @@ def run(root: pathlib.Path) -> list[Finding]:
     path = next((root / n for n in CONFIG_NAMES if (root / n).exists()), None)
     if path is None:
         return []
-    rel = str(path.relative_to(root))
+    rel = path.relative_to(root).as_posix()
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace"))
     except yaml.YAMLError as e:

@@ -133,7 +133,7 @@ def _step_text(step: dict) -> str:
 def run(root: pathlib.Path) -> list[Finding]:
     out: list[Finding] = []
     for wf in sorted((root / WORKFLOWS).glob("*.y*ml")):
-        rel = str(wf.relative_to(root))
+        rel = wf.relative_to(root).as_posix()
         try:
             doc = yaml.safe_load(wf.read_text(encoding="utf-8", errors="replace"))
         except yaml.YAMLError as e:

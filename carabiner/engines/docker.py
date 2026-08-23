@@ -103,7 +103,7 @@ def run(root: pathlib.Path, full: bool = False,
         changed: set[str] | None = None) -> list[Finding]:
     out: list[Finding] = []
     for df in sorted(_dockerfiles(root)):
-        rel = str(df.relative_to(root))
+        rel = df.relative_to(root).as_posix()
         try:
             text = _blank_heredocs(df.read_text(encoding="utf-8", errors="replace"))
         except OSError:

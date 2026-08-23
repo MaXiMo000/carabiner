@@ -51,6 +51,13 @@ class Finding:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "snippet", redact(self.snippet))
+        # Paths are always POSIX, whatever the host. git reports forward
+        # slashes, SARIF requires them, and ignore globs are written with them --
+        # so a Windows backslash here silently breaks every comparison that
+        # matters. --diff matched nothing at all on Windows because of this,
+        # and reported a clean repo, which is the failure this tool exists to
+        # complain about.
+        object.__setattr__(self, "path", str(self.path).replace("\\", "/"))
         if self.severity not in SEVERITIES:
             raise ValueError(f"unknown severity {self.severity!r}")
 

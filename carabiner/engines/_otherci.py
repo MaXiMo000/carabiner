@@ -138,11 +138,14 @@ def _azure(path: pathlib.Path, rel: str) -> list[Finding]:
 def run(root: pathlib.Path) -> list[Finding]:
     out: list[Finding] = []
     for path in _files(root):
-        rel = str(path.relative_to(root))
+        rel = path.relative_to(root).as_posix()
         try:
             if path.name.lower().startswith("jenkinsfile"):
                 out.extend(_jenkins(path, rel))
-            elif rel == CIRCLE:
+            elif path.parent.name == ".circleci":
+                # Dispatched on the directory, not on a string compare against a
+                # forward-slash literal -- that sent every CircleCI config to the
+                # Azure parser on Windows.
                 out.extend(_circle(path, rel))
             else:
                 out.extend(_azure(path, rel))

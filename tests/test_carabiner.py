@@ -1185,6 +1185,20 @@ def test_jenkins_circleci_and_azure():
                "steps:\n- script: echo $(Build.SourceBranchName)\n"), ["AZP001"])
 
 
+def test_every_finding_path_is_posix():
+    """Windows CI caught this: git reports forward slashes and pathlib does not,
+    so `--diff` matched nothing at all and reported a clean repository. Paths are
+    normalised at the Finding boundary rather than at each comparison, because
+    one missed comparison is a silent pass on one operating system."""
+    from carabiner.cli import _collect
+    root = pathlib.Path(__file__).resolve().parents[1]
+    bad = [f.path for f in _collect(root, None, full=False) if "\\" in f.path]
+    check("no finding carries a backslash path", bad, [])
+    check("a windows path is normalised on construction",
+          Finding("ci", "X001", "low", ".github\\workflows\\a.yml", "m").path,
+          ".github/workflows/a.yml")
+
+
 def test_tool_failure_is_never_reported_as_clean():
     """The bug CI caught: gitleaks removed `detect` in 8.24, our command failed,
     and the engine returned [] -- indistinguishable from a clean repo."""
@@ -1215,7 +1229,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 57
+    FLOOR = 58
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

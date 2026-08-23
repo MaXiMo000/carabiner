@@ -283,7 +283,7 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
 
 <span class="m">steps:</span>
   - uses: actions/checkout@v4
-  - uses: <span class="g">MaXiMo000/carabiner@v0.2.0</span>
+  - uses: <span class="g">MaXiMo000/carabiner@v0.2.1</span>
   - uses: github/codeql-action/upload-sarif@v3
     with:
       sarif_file: carabiner.sarif</pre>
@@ -292,7 +292,7 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
     <div class="bar"><span>.pre-commit-config.yaml</span><span>yaml</span></div>
 <pre><span class="m">repos:</span>
   - repo: <span class="g">https://github.com/MaXiMo000/carabiner</span>
-    rev: v0.2.0
+    rev: v0.2.1
     hooks:
       - id: carabiner
 

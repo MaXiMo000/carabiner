@@ -115,7 +115,7 @@ def run(root: pathlib.Path, full: bool = False,
         changed: set[str] | None = None) -> list[Finding]:
     out: list[Finding] = []
     for path in sorted(_manifests(root)):
-        rel = str(path.relative_to(root))
+        rel = path.relative_to(root).as_posix()
         if changed is not None and rel not in changed:
             continue
         try:
