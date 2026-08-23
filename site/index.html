@@ -438,7 +438,7 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
   }
   float shadow(vec3 ro, vec3 rd){
     float res = 1.0, t = 0.04;
-    for(int i=0;i<26;i++){
+    for(int i=0;i<10;i++){
       float h = map(ro+rd*t).x;
       res = min(res, 9.0*h/t);
       t += clamp(h, 0.02, 0.22);
@@ -459,13 +459,24 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
     vec3 ro = vec3(0.0, 0.0, 3.5);
     vec3 rd = normalize(vec3(uv, -1.85));
 
+    // The whole object fits inside a sphere of radius 1.7. Testing that first
+    // costs a dot product and skips the march for most of the screen -- without
+    // it this shader evaluates the field a hundred million times a frame and
+    // hangs the tab.
+    float b = dot(ro, rd), c = dot(ro, ro) - 1.7*1.7;
+    float disc = b*b - c;
     float t = 0.0; vec2 hit = vec2(-1.0);
-    for(int i=0;i<86;i++){
-      vec3 p = ro + rd*t;
-      vec2 m = map(p);
-      if(m.x < 0.0016){ hit = vec2(t, m.y); break; }
-      t += m.x*0.92;
-      if(t > 8.0) break;
+    if(disc > 0.0){
+      float near = max(0.0, -b - sqrt(disc));
+      float far  = -b + sqrt(disc);
+      t = near;
+      for(int i=0;i<52;i++){
+        vec3 p = ro + rd*t;
+        vec2 m = map(p);
+        if(m.x < 0.002){ hit = vec2(t, m.y); break; }
+        t += m.x*0.95;
+        if(t > far) break;
+      }
     }
 
     vec3 col = GROUND;
@@ -494,7 +505,8 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
     } else {
       // Contact shadow on the page itself, so the object sits on the ground
       // rather than floating in front of it.
-      float d = map(vec3(uv*3.1, 0.0)).x;
+      float r = length(uv*3.1);
+      float d = r > 2.6 ? 1.0 : map(vec3(uv*3.1, 0.0)).x;
       float s = smoothstep(0.55, 0.0, d);
       col = GROUND - vec3(0.10,0.10,0.095)*s*0.5;
       alpha = s*0.30;
@@ -534,7 +546,7 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
 
   // Raymarching is per-pixel: rendering a 3x retina buffer costs three times
   // the work for a difference nobody can see on a soft metal surface.
-  const DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+  const DPR = 1;   // raymarching is per-pixel; retina buys nothing here
   function size(){
     const r = cv.getBoundingClientRect();
     cv.width = Math.max(1, Math.floor(r.width*DPR));
@@ -551,7 +563,14 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
   }, {passive:true});
 
   const start = performance.now();
+  let visible = true;
+  if('IntersectionObserver' in window){
+    new IntersectionObserver(es => { visible = es[0].isIntersecting; },
+                             {rootMargin:'120px'}).observe(cv);
+  }
   function frame(){
+    // Off screen or in a background tab: draw nothing at all.
+    if(!visible || document.hidden){ requestAnimationFrame(frame); return; }
     const now = (performance.now() - start)/1000;
     // Inertia: the object trails the pointer instead of snapping to it.
     mx += (tx - mx)*0.045; my += (ty - my)*0.045;
