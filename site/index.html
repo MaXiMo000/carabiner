@@ -576,8 +576,11 @@ footer{border-top:1px solid var(--rule);padding:26px 0 44px;display:flex;
                              {rootMargin:'120px'}).observe(cv);
   }
   function frame(){
-    // Off screen or in a background tab: draw nothing at all.
-    if(!visible || document.hidden){ requestAnimationFrame(frame); return; }
+    // Off screen or backgrounded: draw nothing -- but always paint the FIRST
+    // frame, whatever the tab state. Opening a link in a background tab is
+    // ordinary, and without this the canvas stays empty until the tab is
+    // focused, so the fallback shows on a machine that renders the shader fine.
+    if(drawn && (!visible || document.hidden)){ requestAnimationFrame(frame); return; }
     const now = (performance.now() - start)/1000;
     // Inertia: the object trails the pointer instead of snapping to it.
     mx += (tx - mx)*0.045; my += (ty - my)*0.045;
