@@ -1221,6 +1221,21 @@ def test_tool_failure_is_never_reported_as_clean():
           "not read this scan" in got[0].fix, True)
 
 
+def test_ci011_tag_without_release():
+    """The bug this repo actually had: nine of eighteen tags shipped to PyPI
+    and ghcr with no Release attached, so the Releases page advertised a stale
+    version. Asserted in both directions -- the corrected workflow must be
+    silent, because a rule that fires on a correct release workflow would get
+    the whole engine muted."""
+    from carabiner.engines import _github
+    broken = _github.run(FIXTURES / "ci_tag_without_release")
+    check("fires when a tag publishes without a Release",
+          [f.rule for f in broken], ["CI011"])
+    check("and says what to add", "gh release create" in broken[0].fix, True)
+    check("silent once the release step exists",
+          [f.rule for f in _github.run(FIXTURES / "ci_tag_with_release")], [])
+
+
 def main():
     # Discovered, not listed. A hand-maintained roster silently stops running
     # tests the moment an edit drops a name -- which is exactly what happened.
@@ -1229,7 +1244,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 58
+    FLOOR = 59
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

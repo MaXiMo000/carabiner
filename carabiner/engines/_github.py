@@ -121,6 +121,19 @@ def _perm_writes(perms) -> list[str]:
     return []
 
 
+# Things that mean "this workflow shipped an artefact somewhere users install
+# from", and things that mean "a GitHub Release was created". Substring matches
+# against the flattened step, so both `uses:` actions and `run:` scripts count.
+_PUBLISH_MARKERS = (
+    "gh-action-pypi-publish", "twine upload", "npm publish", "cargo publish",
+    "docker/build-push-action", "docker push", "gem push", "mvn deploy",
+)
+_RELEASE_MARKERS = (
+    "gh release create", "softprops/action-gh-release", "actions/create-release",
+    "ncipollo/release-action", "release-please", "goreleaser",
+)
+
+
 def _step_text(step: dict) -> str:
     """Everything in a step that could reference a context, flattened."""
     import json as _json
@@ -191,6 +204,32 @@ def run(root: pathlib.Path) -> list[Finding]:
                     f"top-level write permission granted ({w})",
                     fix="move the write scope onto the single job that needs it",
                     snippet=f"permissions {w}"))
+
+        # CI011 -- a tag that ships artefacts but leaves no Release behind.
+        # The tag exists, PyPI and the registry get the build, and the repo's
+        # Releases page still shows the previous version. Anyone evaluating the
+        # project reads a stale version, and the artefacts ship without the
+        # release notes or provenance a Release would carry.
+        raw_on = doc.get("on", doc.get(True))
+        push = raw_on.get("push") if isinstance(raw_on, dict) else None
+        on_tags = isinstance(push, dict) and bool(push.get("tags"))
+        if on_tags:
+            publishes = creates_release = False
+            for _job_name, _job, step in _steps(doc):
+                text = _step_text(step).lower()
+                if any(marker in text for marker in _RELEASE_MARKERS):
+                    creates_release = True
+                if any(marker in text for marker in _PUBLISH_MARKERS):
+                    publishes = True
+            if publishes and not creates_release:
+                out.append(Finding(
+                    "ci", "CI011", "low", rel,
+                    "publishes artefacts on a tag but never creates a GitHub "
+                    "Release -- the tag ships and the Releases page stays stale",
+                    fix="add a step that runs `gh release create \"$GITHUB_REF_NAME\" "
+                        "--generate-notes dist/*` (needs `contents: write` on that "
+                        "job), and assert it exists afterwards",
+                    snippet="on.push.tags without a release step"))
 
         # ---- the untrusted-trigger family -------------------------------
         # pull_request_target and workflow_run both run in the context of the

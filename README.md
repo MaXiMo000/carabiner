@@ -145,7 +145,7 @@ the budget.
 
 | Engine | Checks | Needs |
 |---|---|---|
-| `ci` — GitHub Actions | CI001 `pull_request_target` + PR-head checkout · CI002 script injection from `github.event` into `run:` · CI003 unpinned actions · CI004/5 token blast radius · CI006 secrets in reach of checked-out contributor code · CI007 self-hosted runners · CI008 `persist-credentials` left on · CI009 `secrets: inherit` across repos · CI010 cache poisoning | nothing |
+| `ci` — GitHub Actions | CI001 `pull_request_target` + PR-head checkout · CI002 script injection from `github.event` into `run:` · CI003 unpinned actions · CI004/5 token blast radius · CI006 secrets in reach of checked-out contributor code · CI007 self-hosted runners · CI008 `persist-credentials` left on · CI009 `secrets: inherit` across repos · CI010 cache poisoning · CI011 ships artefacts on a tag without creating a Release | nothing |
 | `ci` — GitLab CI | GL001 script injection from a merge-request title or branch name · GL002 unpinned remote `include:` · GL003 mutable image and service tags | nothing |
 | `repo` | REPO001 `.gitignore` gaps · REPO002 committed key material · REPO003 no disclosure policy · REPO004 credentials in git remotes | nothing |
 | `ci` — Jenkins / CircleCI / Azure | JEN001 Groovy interpolation into `sh` · JEN002 literal credential in a pipeline · CIR001 `@volatile` orb · CIR002 pipeline parameter into a run step · AZP001 branch name into a script | nothing |
