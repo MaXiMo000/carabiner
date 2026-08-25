@@ -168,7 +168,7 @@ of a modern repo, and it is plain YAML. Native checks:
 |---|---|---|
 | CI001 | `pull_request_target` with a checkout of the PR head | The canonical way third-party PRs steal your secrets. Critical. |
 | CI002 | `${{ github.event.* }}` interpolated into a `run:` block | Script injection — a PR *title* becomes shell on your runner |
-| CI003 | Action referenced by tag or branch, not a commit SHA | Tags are mutable; a compromised action re-tags and you run it |
+| CI003 | Action referenced by tag or branch, not a commit SHA | Tags are mutable; a compromised action re-tags and you run it. Not reported when the action is *this* repository's own — moving that tag needs the push access that could rewrite the workflow anyway |
 | CI004 | No top-level `permissions:` block | Falls back to the repo default, historically write-all |
 | CI005 | `permissions: write-all` or `contents: write` without cause | Blast radius |
 | CI006 | Secret passed to a step that also runs untrusted code | Exfiltration path |

@@ -101,7 +101,13 @@ def hook_fires(root: pathlib.Path) -> list[Finding]:
 
 # --------------------------------------------------------------- API drills --
 
-def _slug(root: pathlib.Path) -> str | None:
+def origin_slug(root: pathlib.Path) -> str | None:
+    """`owner/repo` from the origin remote.
+
+    Also read by the CI engine, which has to know which repository it is
+    scanning before it can tell a stranger's action from this repository's
+    own. Public for that reason rather than because the drills needed it.
+    """
     try:
         r = subprocess.run(["git", "remote", "get-url", "origin"], cwd=root,
                            capture_output=True, text=True, timeout=20, check=False)
@@ -131,7 +137,7 @@ def github_controls(root: pathlib.Path) -> list[Finding]:
     # Token from the environment only. There is deliberately no --token flag:
     # argv is world-readable via /proc and CI logs echo commands.
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    slug = _slug(root)
+    slug = origin_slug(root)
     if not slug:
         return [_unverified("DRILL010", "GitHub controls",
                             "no GitHub remote found")]
