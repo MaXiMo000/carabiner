@@ -8,11 +8,13 @@ strictly better on some check, delete that check and wrap it.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 
 import yaml
 
+from .. import drill
 from ..finding import Finding
 
 WORKFLOWS = ".github/workflows"
@@ -30,13 +32,56 @@ FIRST_PARTY_OWNERS = {"actions", "github"}
 _VERSION_TAG = re.compile(r"^v?\d+(\.\d+)*$", re.I)
 
 
-def _pin_severity(uses: str, ref: str) -> tuple[str, str]:
-    """-> (severity, why).
+_UNRESOLVED = "\x00unresolved"
+
+
+def _repo_of(uses: str) -> str:
+    """`owner/repo` from a `uses:` value, dropping the subdirectory and the ref.
+
+    `github/codeql-action/upload-sarif@sha` lives in `github/codeql-action`;
+    the action is the third path segment, not a repository of its own.
+    """
+    return "/".join(uses.partition("@")[0].split("/")[:2]).lower()
+
+
+def _own_slug(root: pathlib.Path) -> str | None:
+    """`owner/repo` of the repository being scanned, or None if unknowable.
+
+    `$GITHUB_REPOSITORY` first: it is set in every Actions run, which is where
+    this check does its work, and it costs nothing. The remote is the fallback
+    for a local scan.
+    """
+    env = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if env.count("/") == 1:
+        return env.lower()
+    return (drill.origin_slug(root) or "").lower() or None
+
+
+def _pin_severity(uses: str, ref: str,
+                  own: str | None = None) -> tuple[str, str] | None:
+    """-> (severity, why), or None when there is nothing to report.
 
     A moving branch from a third party is the finding worth acting on. A version
     tag is what nearly every project uses and flagging it at any real severity
     buries the branch refs that matter.
     """
+    # A repository referencing its own action is not a supply-chain question.
+    #
+    # Moving that tag needs push access to *this* repository -- the same access
+    # that would let someone rewrite the workflow outright, or the action's
+    # source, or both. Nothing is trusted here that was not already trusted, so
+    # there is no boundary being crossed and nothing to pin against.
+    #
+    # It is also the universal shape for an action repository: the only honest
+    # way to test the tag your users actually consume is to consume it, from a
+    # job that exists for exactly that. Reporting it asks the author to pin the
+    # job to a commit, which would test a specific commit instead of the thing
+    # users get -- the one property that job exists to prove. A check whose fix
+    # breaks the thing being checked is a check that gets suppressed, and every
+    # suppression spends some of the credit the rest of the rules run on.
+    if own and _repo_of(uses) == own:
+        return None
+
     first_party = uses.split("/", 1)[0].lower() in FIRST_PARTY_OWNERS
     versioned = bool(_VERSION_TAG.match(ref))
     if not versioned and not first_party:
@@ -145,6 +190,10 @@ def _step_text(step: dict) -> str:
 
 def run(root: pathlib.Path) -> list[Finding]:
     out: list[Finding] = []
+    # Sentinel rather than None, because None is a real answer here: "asked, and
+    # this repository has no resolvable slug". Retrying that on every step would
+    # shell out once per unpinned action.
+    own: str | None = _UNRESOLVED
     for wf in sorted((root / WORKFLOWS).glob("*.y*ml")):
         rel = wf.relative_to(root).as_posix()
         try:
@@ -340,7 +389,15 @@ def run(root: pathlib.Path) -> list[Finding]:
             if uses and not uses.startswith(("./", "docker://")):
                 ref = uses.partition("@")[2]
                 if not ref or not _SHA.match(ref):
-                    sev, why = _pin_severity(uses, ref)
+                    # Resolved on the first unpinned reference and not before:
+                    # a repository that pins everything should not pay for a
+                    # subprocess to be told so.
+                    if own is _UNRESOLVED:
+                        own = _own_slug(root)
+                    verdict = _pin_severity(uses, ref, own)
+                    if verdict is None:
+                        continue
+                    sev, why = verdict
                     out.append(Finding(
                         "ci", "CI003", sev, rel,
                         f"action `{uses}` is not pinned to a commit -- {why}",

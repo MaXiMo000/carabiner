@@ -161,6 +161,16 @@ version tag on an action is informational; a *moving branch* in someone else's
 repository is not. A private key under `tests/` is reported lower than one in
 `config/`.
 
+**A repository referencing its own action is not reported at all.** Moving that
+tag needs push access to the repository being scanned — the same access that
+would let someone rewrite the workflow outright — so no boundary is crossed and
+there is nothing to pin against. It is also the universal shape for an action
+repository: the only honest way to test the tag your users consume is to consume
+it. CI003 resolves the repository from `$GITHUB_REPOSITORY`, falling back to the
+origin remote. The exemption is that repository, never the action: the same
+`owner/action@v1` referenced from anywhere else is a third party and still
+reported.
+
 A missing scanner degrades to an install hint, never a crash. And a scanner that
 *fails* produces a finding saying the check did not happen — a tool that errors
 is not a repo that is clean.

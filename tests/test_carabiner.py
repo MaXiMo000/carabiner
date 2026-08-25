@@ -943,6 +943,75 @@ def test_action_pinning_severity_is_shaped_by_ref_and_publisher():
         check(f"{uses}@{ref} -> {want}", got, want)
 
 
+def test_a_repo_referencing_its_own_action_is_not_a_supply_chain_finding():
+    """An action repository's only honest smoke test is to consume the tag its
+    users consume, from its own workflow. CI003 had no notion of which
+    repository it was scanning, so it reported that as an unpinned third-party
+    action -- and its own fix, pinning to a SHA, would test a specific commit
+    instead of the thing users get, which is the one property that job exists
+    to prove. Moving the tag needs push access to this repository, which is the
+    same access that would let someone rewrite the workflow outright, so there
+    is no boundary being crossed.
+    """
+    from carabiner.engines._github import _pin_severity, _repo_of
+
+    check("subdirectory actions resolve to their repository",
+          _repo_of("github/codeql-action/upload-sarif@abc"), "github/codeql-action")
+    check("a plain action resolves to its repository",
+          _repo_of("MaXiMo000/firedrill@v0"), "maximo000/firedrill")
+
+    own = "maximo000/firedrill"
+    check("its own action is not reported",
+          _pin_severity("MaXiMo000/firedrill", "v0", own), None)
+    check("nor on a moving branch of itself -- same access, same argument",
+          _pin_severity("MaXiMo000/firedrill", "main", own), None)
+    # The exemption is the repository, never the action. Anyone else consuming
+    # the same tag is a genuine third party and still hears about it.
+    got, _why = _pin_severity("MaXiMo000/firedrill", "v0", "somebody-else/other")
+    check("the same action from somebody else's repo is still reported", got, "info")
+    # And with no slug resolvable -- a scan outside a checkout -- nothing changes.
+    got, _why = _pin_severity("MaXiMo000/firedrill", "v0", None)
+    check("an unresolvable repository changes no verdict", got, "info")
+
+
+def test_self_reference_exemption_survives_a_whole_scan():
+    """The unit above proves the verdict; this proves it reaches the report,
+    and that nothing else in the same workflow got quieter."""
+    import os
+    import tempfile
+    from carabiner.cli import _collect
+
+    wf = ("on: push\npermissions: {contents: read}\njobs:\n"
+          "  published:\n    runs-on: ubuntu-latest\n    steps:\n"
+          "      - uses: MaXiMo000/firedrill@v0\n"
+          "      - uses: dtolnay/rust-toolchain@stable\n"
+          "      - uses: actions/setup-python@v7\n")
+
+    def scan_as(slug):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "ci.yml").write_text(wf, encoding="utf-8")
+            before = os.environ.get("GITHUB_REPOSITORY")
+            os.environ["GITHUB_REPOSITORY"] = slug
+            try:
+                return sorted(f.snippet for f in _collect(root, ["ci"])
+                              if f.rule == "CI003")
+            finally:
+                if before is None:
+                    os.environ.pop("GITHUB_REPOSITORY", None)
+                else:
+                    os.environ["GITHUB_REPOSITORY"] = before
+
+    check("scanned as its owner, only the real third parties remain",
+          scan_as("MaXiMo000/firedrill"),
+          ["actions/setup-python@v7", "dtolnay/rust-toolchain@stable"])
+    check("scanned as anyone else, all three are reported",
+          scan_as("somebody-else/other"),
+          ["MaXiMo000/firedrill@v0", "actions/setup-python@v7",
+           "dtolnay/rust-toolchain@stable"])
+
+
 def test_one_unpinned_action_reference_is_one_finding():
     """tokio reaches dtolnay/rust-toolchain@stable 34 times in a single workflow.
     That is one decision, and 34 identical lines is a wall, not a report."""
@@ -1278,7 +1347,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 61
+    FLOOR = 63
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")
