@@ -150,7 +150,7 @@ the budget.
 | `repo` | REPO001 `.gitignore` gaps · REPO002 committed key material · REPO003 no disclosure policy · REPO004 credentials in git remotes | nothing |
 | `ci` — Jenkins / CircleCI / Azure | JEN001 Groovy interpolation into `sh` · JEN002 literal credential in a pipeline · CIR001 `@volatile` orb · CIR002 pipeline parameter into a run step · AZP001 branch name into a script | nothing |
 | `kubernetes` | K8S001 `hostNetwork`/`hostPID`/`hostIPC` · K8S002 privileged container · K8S003 privilege escalation · K8S004 nothing preventing root · K8S005 a literal credential in `env` | nothing |
-| `docker` | DOCK001 final stage never drops root · DOCK002 untagged or `:latest` base · DOCK003 credential baked into `ARG`/`ENV` · DOCK004 remote script piped into a shell · DOCK005 TLS verification disabled at build time | nothing |
+| `docker` | DOCK001 final stage never drops root · DOCK002 untagged or `:latest` base · DOCK003 credential baked into `ARG`/`ENV` · DOCK004 remote script piped into a shell · DOCK005 TLS verification disabled at build time · DOCK006 copies the whole build context with no `.dockerignore`, so `.git` and every secret ever committed to it ship inside the image | nothing |
 | `secrets` | working tree every commit; history behind `--all` and one severity higher, because deleting the file is not remediation | `gitleaks` |
 | `deps` | lockfile advisories across PyPI, npm, Go, Maven, crates.io and more; ids normalised to CVE so two scanners cannot report one problem twice | `osv-scanner` |
 

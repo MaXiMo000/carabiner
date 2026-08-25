@@ -1236,6 +1236,40 @@ def test_ci011_tag_without_release():
           [f.rule for f in _github.run(FIXTURES / "ci_tag_with_release")], [])
 
 
+def test_dock006_copy_all_without_dockerignore():
+    """`COPY . .` with no .dockerignore bakes .git into the image, and a
+    repository's history holds every secret ever committed to it -- including
+    ones deleted from the working tree later. `git log` inside a published
+    image can hand one back years afterwards.
+
+    Both directions, because a rule that fires on a Dockerfile that already has
+    a .dockerignore would be noise on every correctly-built project."""
+    from carabiner.engines import docker
+    missing = docker.run(FIXTURES / "docker_copy_all_no_dockerignore")
+    check("fires when the whole context is copied with no .dockerignore",
+          [f.rule for f in missing], ["DOCK006"])
+    check("and says why .git specifically matters",
+          ".git" in missing[0].fix, True)
+    check("silent once a .dockerignore exists",
+          [f.rule for f in docker.run(FIXTURES / "docker_copy_all_with_dockerignore")], [])
+
+
+def test_dock006_ignores_targeted_copies():
+    """COPY package.json ./ is not copying the context and must not fire."""
+    import pathlib as _p, tempfile
+    from carabiner.engines import docker
+    with tempfile.TemporaryDirectory() as tmp:
+        d = _p.Path(tmp)
+        (d / "Dockerfile").write_text(
+            "FROM node:22-alpine@sha256:" + "a" * 64 + "\n"
+            "COPY package.json ./\n"
+            "COPY src/ ./src/\n"
+            "USER 10001\n"
+            "CMD [\"node\", \"x.js\"]\n", encoding="utf-8")
+        check("targeted COPYs do not trip it",
+              [f.rule for f in docker.run(d) if f.rule == "DOCK006"], [])
+
+
 def main():
     # Discovered, not listed. A hand-maintained roster silently stops running
     # tests the moment an edit drops a name -- which is exactly what happened.
@@ -1244,7 +1278,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 59
+    FLOOR = 61
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

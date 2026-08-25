@@ -31,6 +31,12 @@ _PLACEHOLDER = ("change", "your", "xxx", "todo", "replace", "placeholder",
 # curl | sh: the remote script is fetched and executed unverified, at build time.
 _PIPE_TO_SHELL = re.compile(
     r"(curl|wget)\b[^|&;]*\|\s*(sudo\s+)?(ba|z|d)?sh\b", re.I)
+# COPY . . / ADD . . pull the whole build context into the image. Without a
+# .dockerignore that includes .git -- and a repository's history holds every
+# secret ever committed to it, including ones deleted later.
+_COPY_ALL = re.compile(r"^(COPY|ADD)\s+(--[\w=.-]+\s+)*\.\/?\s+\.?\/?\s*$", re.I)
+
+
 _TLS_OFF = re.compile(
     r"(--insecure\b|--no-check-certificate\b|-k\s|GIT_SSL_NO_VERIFY|"
     r"NODE_TLS_REJECT_UNAUTHORIZED\s*=?\s*['\"]?0)", re.I)
@@ -115,11 +121,15 @@ def run(root: pathlib.Path, full: bool = False,
         # (unknowable without the build args). Only three were real.
         stage_names: set[str] = set()
         stages, user_set, last_from_line = 0, False, None
+        copy_all_line = None
         for lineno, line in _logical_lines(text):
             if not line or line.startswith("#"):
                 continue
             verb, _, rest = line.partition(" ")
             verb = verb.upper()
+
+            if copy_all_line is None and _COPY_ALL.match(line):
+                copy_all_line = lineno
 
             if verb == "FROM":
                 stages += 1
@@ -181,6 +191,27 @@ def run(root: pathlib.Path, full: bool = False,
 
         # Only the final stage ships. Earlier build stages running as root is
         # normal and flagging them would be noise.
+        # DOCK006 -- the whole build context, including .git, goes into the
+        # image. A repository's history holds every secret ever committed to
+        # it, so `git log` inside a published image can hand back a credential
+        # that was deleted from the working tree years ago. .dockerignore is
+        # the only thing standing between the two.
+        if copy_all_line is not None:
+            ctx = df.parent
+            ignore_here = (ctx / ".dockerignore").is_file()
+            ignore_at_root = (root / ".dockerignore").is_file()
+            if not (ignore_here or ignore_at_root):
+                out.append(Finding(
+                    "docker", "DOCK006", "high", rel, line=copy_all_line,
+                    message="copies the whole build context with no "
+                            ".dockerignore -- .git, local .env files and "
+                            "node_modules are baked into the image",
+                    fix="add a .dockerignore next to the Dockerfile with at "
+                        "least `.git`, `.env`, `*.pem`, `*.key` and "
+                        "`node_modules`; a secret deleted from the working "
+                        "tree is still in .git and ships with the image",
+                    snippet="COPY . . without .dockerignore"))
+
         if stages and not user_set:
             out.append(Finding(
                 "docker", "DOCK001", "medium", rel, line=last_from_line,
