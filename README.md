@@ -72,7 +72,7 @@ stopped working is a regression today, not pre-existing debt to accept.
 **One normalized model.** Every engine reports into one `Finding`. Deduplicated
 across engines, keeping the worse severity — two scanners reporting one CVE is
 one finding, and a developer shown the same problem twice trusts the tool less
-each time. Emitted as SARIF so findings land in the PR Security tab.
+each time. Emitted as SARIF so findings land in the PR Security tab — which is exactly why `snippet` is scrubbed in `Finding.__post_init__` rather than at each call site: a credential that reaches a finding reaches a code-scanning alert. Token-shaped runs are shortened to first4…last4, and a credential in a URL is removed outright. That second rule deliberately over-reaches, because a redactor is the one place in this tool where a false positive is cheaper than a false negative.
 
 ## Adopt it
 

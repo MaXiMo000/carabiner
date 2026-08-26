@@ -242,12 +242,18 @@ def run(root: pathlib.Path, full: bool = False,
                 if "url =" in line and "@" in line and "://" in line:
                     cred = line.split("://", 1)[1].split("@")[0]
                     if ":" in cred:
+                        # Masked here, not left to the redactor. This is the
+                        # one place in the codebase that knows exactly where
+                        # the password starts and ends, and DOCK003, K8S005
+                        # and JEN002 all already mask at the source rather
+                        # than handing the value over and hoping.
+                        user = cred.split(":", 1)[0]
                         out.append(Finding(
                             "repo", "REPO004", "high", ".git/config",
                             "a credential is embedded in a git remote URL",
                             fix="use a credential helper or SSH; this value is "
                                 "readable by anything that can read the repo dir",
-                            snippet=line.strip()))
+                            snippet=line.strip().replace(cred, f"{user}:***")))
     return _filter(out, changed)
 
 
