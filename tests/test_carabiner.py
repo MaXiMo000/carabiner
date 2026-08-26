@@ -67,6 +67,26 @@ def test_redaction_is_structural():
           canary in json.dumps(f.as_dict()), False)
     check("a redacted stub is still shown", "..." in f.snippet, True)
     check("short non-token text is left alone", redact("hello world"), "hello world")
+
+    # The canary above has no separators, which is why it was always caught.
+    # A password is free to contain the separators the token rule splits on,
+    # and REPO004 reports a git remote line on purpose — so this shape was a
+    # live credential reaching a report, and through SARIF a code-scanning
+    # alert. Passwords chosen to defeat the token rule, not to suit it.
+    for secret, line in (
+        ("Tr0ub4dor-3-correct-horse",
+         "url = https://ci:Tr0ub4dor-3-correct-horse@github.com/o/r.git"),
+        ("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+         "url = https://ci:wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY@git.example.com/x.git"),
+        ("p.a.s.s.w.o.r.d",
+         "https://bot:p.a.s.s.w.o.r.d@example.com/repo.git"),
+    ):
+        out = redact(line)
+        check(f"URL credential {secret[:12]!r} does not survive", secret in out, False)
+        check("and the host is still readable", "@" in out and "://" in out, True)
+        f = Finding("repo", "REPO004", "high", ".git/config", "m", snippet=line)
+        check("nor does it survive construction", secret in f.snippet, False)
+        check("nor serialization", secret in json.dumps(f.as_dict()), False)
     # Identifiers this tool reports constantly must stay readable. Slashes,
     # dots and hyphens are separators, not part of a secret.
     for ident in ("dtolnay/rust-toolchain@stable",

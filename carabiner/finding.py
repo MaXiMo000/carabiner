@@ -27,12 +27,39 @@ def rank(severity: str) -> int:
 # legible while still catching keys, which have no separators to split on.
 _TOKENY = re.compile(r"[A-Za-z0-9+=_]{20,}")
 
+# The one shape the rule above cannot see, and the one this tool reports on
+# purpose: `scheme://user:SECRET@host`.
+#
+# Splitting on separators is what keeps identifiers legible, and a password is
+# free to contain exactly those separators. `Tr0ub4dor-3-correct-horse` is four
+# runs of under twenty characters and passes through untouched; so does an AWS
+# secret key, whose slashes cut it into runs of 13, 7 and 18. REPO004 puts a
+# git remote line into a snippet, so that was a real credential reaching a
+# report and, through SARIF, a code-scanning alert.
+#
+# Matched by *shape*, never by entropy. A scheme, a userinfo colon and an `@`
+# are unambiguous; an entropy heuristic would eventually decide that
+# `MyOrg123/some-long-action-name` is a secret and mangle the identifiers the
+# rule above exists to protect.
+#
+# The password may contain slashes, so this deliberately over-reaches: a URL
+# like `https://host:8080/path@x` loses its port and path. That is the right
+# direction to be wrong in *here*, and it is the opposite of the rule this tool
+# applies to findings. A false positive in a report wastes an afternoon; a
+# false negative in a redactor puts a live credential in a code-scanning
+# alert.
+_URL_CRED = re.compile(r"(?P<head>[a-zA-Z][A-Za-z0-9+.-]*://[^\s:@/]+:)[^\s@]+(?=@)")
+
 
 def redact(text: str, keep: int = 4) -> str:
     """first4...last4 for anything token-shaped. Never the middle."""
     def scrub(m: re.Match) -> str:
         s = m.group(0)
         return f"{s[:keep]}...{s[-keep:]}" if len(s) > keep * 2 + 3 else "..."
+    # URL credentials first: the password is removed outright rather than
+    # shortened, because unlike a token there is no version of it that is
+    # useful to a reader.
+    text = _URL_CRED.sub(lambda m: m.group("head") + "***", text)
     return _TOKENY.sub(scrub, text)[:200]
 
 
