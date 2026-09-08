@@ -1120,9 +1120,10 @@ def test_dockerfile_engine_reads_dockerfiles_not_everything_shaped_like_one():
 
 
 def test_untrusted_trigger_family():
-    """CI006 and CI008 were promised in PLAN.md and never built. Both are real
-    token-theft routes, and both only matter in combination with a trigger that
-    runs in the base repo's context while handling somebody else's code."""
+    """CI006 and CI008 were designed early and never built until now. Both are
+    real token-theft routes, and both only matter in combination with a
+    trigger that runs in the base repo's context while handling somebody
+    else's code."""
     import tempfile
     from carabiner.engines import ci as C
 
