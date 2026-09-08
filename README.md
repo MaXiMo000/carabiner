@@ -161,6 +161,28 @@ version tag on an action is informational; a *moving branch* in someone else's
 repository is not. A private key under `tests/` is reported lower than one in
 `config/`.
 
+**Re-run since, on a different sample.** 30 popular, unrelated public repos —
+Python, JS/TS, Go, Rust, Ruby, Java — shallow-cloned fresh and scanned with
+`--all`, gitleaks and osv-scanner installed. 28 of 30 produced at least one new
+finding; `expressjs/express` and `spf13/cobra` scanned clean. Median scan time
+was **10.5s**, osv-scanner's live lookup included. The single largest number —
+3,339, on `facebook/react` — came from a sprawling, decade-old monorepo with
+dozens of workflow files and an equally old lockfile: real surface area, not a
+scanner malfunction.
+
+The dominant rule by far was `SECRET-*`, on all but a handful of the 30 —
+almost none of it a live credential. `psf/requests` ships four real TLS
+private keys under `tests/certs/`, used by its own mTLS test suite; the
+`tests/` demotion above puts each at `medium` in the working tree, `high` only
+once history is in scope, exactly as designed. That is the pattern across the
+sample: a raw secrets scanner flags something in nearly every mature codebase,
+and almost all of it is a fixture, an example JWT in a doc, or a placeholder —
+precisely the noise the ratchet exists to keep out of a team's way, not a
+one-off blind spot in this particular tool. The signal worth a maintainer's
+time was elsewhere: unpinned actions, a missing top-level `permissions:`
+block, and dependency advisories on old transitive pins, all real and all
+still there after the fixtures are filtered out.
+
 **A repository referencing its own action is not reported at all.** Moving that
 tag needs push access to the repository being scanned — the same access that
 would let someone rewrite the workflow outright — so no boundary is crossed and
