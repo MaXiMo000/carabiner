@@ -21,13 +21,35 @@ JENKINS = ("Jenkinsfile", "jenkinsfile", "Jenkinsfile.groovy")
 CIRCLE = ".circleci/config.yml"
 AZURE = ("azure-pipelines.yml", "azure-pipelines.yaml", ".azure-pipelines.yml")
 
-# Groovy interpolates ${...} inside DOUBLE quotes before the shell ever sees it,
+# Groovy interpolates ${...} -- and, in a GString, bare $identifier.property
+# with no braces at all -- inside DOUBLE quotes before the shell ever sees it,
 # so a build parameter lands in the command as code. Single quotes do not
 # interpolate, which is why the quote style is the whole finding.
-_GROOVY_SH = re.compile(r"""\b(sh|bat|powershell)\s*\(?\s*"([^"]*\$\{[^}]*\}[^"]*)\"""")
+#
+# A named, backreferenced quote group rather than a literal `"` on both ends:
+# `sh """...multi-line..."""` (a real, common Jenkinsfile shape for anything
+# longer than one line) opened with the same regex used to look identical to
+# `sh ""` immediately followed by unrelated text, because the first two
+# quotes of the triple satisfied an open-then-close pair with nothing between
+# them -- measured against a real triple-quoted step, not assumed safe
+# because the un-tripled case worked. DOTALL is required for that same
+# multi-line body to be seen as one string rather than stopping at the first
+# newline.
+_GROOVY_SH = re.compile(
+    r'\b(?:sh|bat|powershell)\s*\(?\s*(?P<q>"""|")(?P<body>.*?\$\{?\w.*?)(?P=q)',
+    re.S)
 _GROOVY_UNTRUSTED = re.compile(
-    r"\$\{\s*(params\.[A-Za-z_]\w*|env\.(CHANGE_TITLE|CHANGE_BRANCH|CHANGE_AUTHOR|"
-    r"BRANCH_NAME|ghprbPullTitle|ghprbSourceBranch))", re.I)
+    r"\$\{?\s*(params\.[A-Za-z_]\w*|env\.(CHANGE_TITLE|CHANGE_BRANCH|CHANGE_AUTHOR|"
+    r"BRANCH_NAME|ghprbPullTitle|ghprbSourceBranch)|"
+    r"env\[['\"](?:CHANGE_TITLE|CHANGE_BRANCH|CHANGE_AUTHOR|BRANCH_NAME|"
+    r"ghprbPullTitle|ghprbSourceBranch)['\"]\])", re.I)
+# What this still cannot see, and why: string concatenation --
+# `sh "echo " + params.B` -- never puts a `$` in the shell string at all, so
+# there is no interpolation syntax here for a regex to anchor on. Catching it
+# would mean tracking a value from wherever `+` last touched it, which is
+# dataflow analysis, not a pattern -- exactly the shallower-than-parsed
+# coverage this file's own module docstring already commits to. Pinned as a
+# known miss in test_carabiner.py rather than left undocumented.
 _CREDENTIAL_LITERAL = re.compile(
     r"""(?i)\b(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*['"]([^'"\s]{8,})['"]""")
 _PLACEHOLDER = ("change", "your", "xxx", "todo", "replace", "placeholder",
@@ -64,7 +86,7 @@ def _jenkins(path: pathlib.Path, rel: str) -> list[Finding]:
     out: list[Finding] = []
     text = path.read_text(encoding="utf-8", errors="replace")
     for m in _GROOVY_SH.finditer(text):
-        inner = m.group(2)
+        inner = m.group("body")
         u = _GROOVY_UNTRUSTED.search(inner)
         if not u:
             continue

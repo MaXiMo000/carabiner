@@ -1364,6 +1364,54 @@ def test_jenkins_circleci_and_azure():
                "steps:\n- script: echo $(Build.SourceBranchName)\n"), ["AZP001"])
 
 
+def test_jenkins_groovy_string_shapes_that_used_to_evade_detection():
+    """JEN001 was tested against exactly one shell-step shape: `sh "..."` on
+    one line. Real Jenkinsfiles use several others for the identical
+    vulnerability, and the original regex -- anchored to a single literal `"`
+    on each end -- missed every one of them. Each positive case here failed
+    before this session's fix; each negative case must keep failing, or the
+    rule starts firing on ordinary steps that use none of this."""
+    import tempfile
+    from carabiner.engines import _otherci as O
+
+    def scan(body):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = pathlib.Path(tmp) / "Jenkinsfile"
+            p.write_text(body, encoding="utf-8")
+            return [f.rule for f in O.run(pathlib.Path(tmp))]
+
+    # A triple-quoted string looked like `""` (open, immediately close) with
+    # unrelated content after it -- the interpolation inside was never seen.
+    check("triple-quoted multi-line sh step",
+          scan('sh """\necho ${params.B}\n"""\n'), ["JEN001"])
+    # Groovy's GString also interpolates a bare $identifier.property with no
+    # braces at all; the original regex only ever looked for a literal `${`.
+    check("bare $params.B with no braces",
+          scan('sh "echo $params.B"\n'), ["JEN001"])
+    # Rarer than dot access, but valid Groovy and not dot notation, so the
+    # original alternation (env\.NAME) never matched it.
+    check("bracket access on env",
+          scan("sh \"echo ${env['CHANGE_TITLE']}\"\n"), ["JEN001"])
+
+    # Both directions still hold for what already worked.
+    check("single quotes still do not interpolate",
+          scan("sh 'echo ${params.B}'\n"), [])
+    check("a trusted variable alone is still silent",
+          scan('sh "echo ${WORKSPACE}"\n'), [])
+    check("plain multi-line shell with no interpolation is still silent",
+          scan('sh """\n#!/bin/bash\necho hello\n"""\n'), [])
+
+    # Documented, not silently missed: string concatenation puts no `$` in
+    # the shell string at all, so there is no interpolation syntax to anchor
+    # a regex on. Catching it needs tracking a value across a `+`, which is
+    # dataflow analysis -- the module's own docstring already commits to
+    # staying shallower than that. This assertion is the "still true" pin,
+    # not a bug report; if it ever starts failing, decide on purpose rather
+    # than finding out by accident.
+    check("string concatenation is a known, accepted miss -- not full parsing",
+          scan('sh "echo " + params.B\n'), [])
+
+
 def test_every_finding_path_is_posix():
     """Windows CI caught this: git reports forward slashes and pathlib does not,
     so `--diff` matched nothing at all and reported a clean repository. Paths are
@@ -1596,7 +1644,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 71
+    FLOOR = 72
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")
