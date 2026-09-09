@@ -15,11 +15,11 @@ import pathlib
 
 import yaml
 
+from . import _tool
 from ..finding import Finding
 
 MAX_DEPTH = 4
-SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "vendor", "target",
-             "dist", "build", "__pycache__"}
+SKIP_DIRS = _tool.SKIP_DIRS
 # Workload kinds carry a pod template; the checks below live inside it.
 WORKLOADS = {"Pod", "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob",
              "ReplicaSet", "ReplicationController"}

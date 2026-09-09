@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MaXiMo000/carabiner/schema/finding.schema.json",
+  "title": "carabiner finding",
+  "description": "carabiner/finding.py:Finding.as_dict() -- the one normalized shape every engine reports into, and the shape carried in `--json` output. schema_version bumps only on a breaking change (a field renamed or removed); a new field being added is not breaking and does not bump it.",
+  "type": "object",
+  "required": [
+    "schema_version", "fingerprint", "engine", "rule", "severity",
+    "path", "line", "message", "fix", "snippet"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "fingerprint": {
+      "type": "string",
+      "description": "sha256(engine|rule|path|normalized snippet)[:16]. Deliberately excludes the line number, so reformatting or an added import does not resurrect an accepted finding. This is the key the ratchet baseline (.carabiner/baseline.json) is keyed on.",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "engine": {
+      "type": "string",
+      "description": "Which engine reported this -- 'ci', 'repo', 'docker', 'kubernetes', 'secrets', 'deps', or an ENGINE-ERROR's own engine name."
+    },
+    "rule": {
+      "type": "string",
+      "description": "The specific check, e.g. CI001, DOCK006, SECRET-aws. ENGINE-ERROR is reserved: it means the check itself did not run, not that the repo passed it."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "low", "medium", "high", "critical"]
+    },
+    "path": {
+      "type": "string",
+      "description": "Always forward-slash, regardless of host OS -- git, SARIF, and .carabiner.yml ignore globs all assume it."
+    },
+    "line": {
+      "type": ["integer", "null"],
+      "description": "Reported for humans, deliberately NOT part of the fingerprint."
+    },
+    "message": {
+      "type": "string"
+    },
+    "fix": {
+      "type": "string",
+      "description": "May be empty. Never empty for a real finding in practice, but not required to be non-empty by this schema."
+    },
+    "snippet": {
+      "type": "string",
+      "description": "Context only, already redacted by Finding.__post_init__ before this value could exist -- see carabiner/finding.py:redact(). Truncated to 200 characters."
+    }
+  }
+}

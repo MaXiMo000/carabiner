@@ -74,6 +74,13 @@ across engines, keeping the worse severity — two scanners reporting one CVE is
 one finding, and a developer shown the same problem twice trusts the tool less
 each time. Emitted as SARIF so findings land in the PR Security tab — which is exactly why `snippet` is scrubbed in `Finding.__post_init__` rather than at each call site: a credential that reaches a finding reaches a code-scanning alert. Token-shaped runs are shortened to first4…last4, and a credential in a URL is removed outright. That second rule deliberately over-reaches, because a redactor is the one place in this tool where a false positive is cheaper than a false negative.
 
+`--json`'s shape is [`schema/finding.schema.json`](schema/finding.schema.json)
+— versioned (`schema_version`, bumped only on a breaking change), so a
+downstream consumer isn't trusting an implicit contract. This is what
+[invariant](https://github.com/MaXiMo000/invariant)'s `receipt` check type
+demonstrates for a different pair of tools: read one project's evidence,
+assert on it from another.
+
 ## Adopt it
 
 ```bash
@@ -195,7 +202,9 @@ reported.
 
 A missing scanner degrades to an install hint, never a crash. And a scanner that
 *fails* produces a finding saying the check did not happen — a tool that errors
-is not a repo that is clean.
+is not a repo that is clean. That rule covers a native engine raising too, not
+just a wrapped one exiting non-zero: one engine's bug is reported and every
+other engine still runs, rather than the whole scan going down with it.
 
 ## Known limits, stated plainly
 
@@ -204,6 +213,17 @@ is not a repo that is clean.
 - The published Docker image is `linux/amd64` only.
 - The fast path scans the whole working tree, not just changed files, so a very
   large monorepo can exceed the 2s target.
+- The `secrets` engine's working-tree scan skips `node_modules`, `.venv`,
+  `__pycache__`, `dist`, `build`, `vendor`, `target` and `.git` — generated or
+  vendored content that has no business being read as source, and that
+  gitleaks' non-git scan mode has no `.gitignore` of its own to tell it to
+  skip. Measured, not theoretical: a compiled `.pyc` embedded a string this
+  project's own `drill.py` deliberately split across a concatenation to keep
+  out of a scanner's sight in the `.py` source, because CPython folds that
+  concatenation back into one literal at compile time. If one of those
+  directories is ever *actually committed* to a repo, `--all`'s history scan
+  still finds what's in it — a real secret checked into `node_modules` is a
+  problem regardless of what carabiner shows on a pre-commit run.
 
 Tested on Linux and Windows, Python 3.10 and 3.13. `--offline` is enforced by a
 test that blocks socket creation and asserts a full scan still completes — the

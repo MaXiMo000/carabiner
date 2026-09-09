@@ -87,9 +87,30 @@ def _err(detail: str) -> Finding:
     return _tool.error("secrets", REQUIRES, detail)
 
 
+# gitleaks' non-git scan (`dir`, or `detect --no-git`) walks the raw
+# filesystem with no idea a .gitignore exists -- unlike the `git` mode used
+# for history, which only ever sees committed blobs. Measured on this
+# project's own repo: `carabiner/__pycache__/drill.cpython-312.pyc` tripped
+# SECRET-private-key on every single working-tree scan, because a string
+# split across a concatenation specifically to keep it out of the .py source
+# (drill.py's canary) still lands whole in the compiled bytecode -- CPython
+# folds the concatenation at compile time. Fixed at the source too (drill.py
+# no longer produces a foldable literal), but __pycache__ is one directory;
+# node_modules, .venv and the rest are the same shape of problem waiting to
+# happen in someone else's repo, and none of it is ever something a working
+# tree scan should have been reading in the first place.
+def _skip_config(tmp: pathlib.Path) -> pathlib.Path:
+    path = tmp / "skip.toml"
+    paths = ",\n  ".join(f"'''(^|/){d}/'''" for d in sorted(_tool.SKIP_DIRS))
+    path.write_text(f"[extend]\nuseDefault = true\n\n[allowlist]\npaths = [\n  {paths},\n]\n",
+                    encoding="utf-8")
+    return path
+
+
 def _scan(binary: str, root: pathlib.Path, history: bool) -> list[Finding]:
     with tempfile.TemporaryDirectory() as tmp:
-        report = pathlib.Path(tmp) / "gitleaks.json"
+        tmp = pathlib.Path(tmp)
+        report = tmp / "gitleaks.json"
         if _tool.supports(binary, "\n  dir "):
             cmd = [binary, "git" if history else "dir", str(root)]
         else:
@@ -98,6 +119,10 @@ def _scan(binary: str, root: pathlib.Path, history: bool) -> list[Finding]:
                 cmd.append("--no-git")
         cmd += ["--no-banner", "--redact", "--exit-code", str(_LEAKS_FOUND),
                 "--report-format", "json", "--report-path", str(report)]
+        if not history:
+            # History scanning needs none of this: git objects were committed,
+            # so a .gitignore'd directory cannot appear there to begin with.
+            cmd += ["--config", str(_skip_config(tmp))]
         _, err = _tool.invoke(cmd, ok_codes=(0, _LEAKS_FOUND))
         if err:
             return [_err(err)]

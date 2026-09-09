@@ -15,6 +15,24 @@ from ..finding import Finding
 
 _HELP_CACHE: dict[tuple[str, str], bool] = {}
 
+# Generated or vendored content, conventionally .gitignore'd, that should
+# never be read as source. docker.py, kubernetes.py and deps.py each pruned
+# their own os.walk with a near-identical copy of this set (kubernetes.py's
+# was the strict common subset); this is the one copy, so a new noise
+# directory only needs adding once. Each of those keeps its own additions
+# layered on top -- this is the floor, not the whole list for every engine.
+#
+# secrets.py uses it too, for a different reason than "faster": a compiled
+# .pyc can embed a string literal split across a concatenation specifically
+# to keep it out of a scanner's sight in the .py source (see drill.py's
+# canary) -- CPython folds that concatenation back into one literal at
+# compile time, so the split protects the source text and nothing else.
+# __pycache__/, .venv/, node_modules/ and friends are exactly the places that
+# kind of accidental, unreviewable, un-committed match turns up, and gitleaks'
+# working-tree scan has no .gitignore of its own to tell it to skip them.
+SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "vendor", "target",
+             "dist", "build", "__pycache__"}
+
 
 def supports(binary: str, needle: str) -> bool:
     """Does `binary --help` mention `needle`?

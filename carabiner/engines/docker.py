@@ -13,11 +13,13 @@ from __future__ import annotations
 import pathlib
 import re
 
+from . import _tool
 from ..finding import Finding
 
 MAX_DEPTH = 3
-SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "vendor", "target",
-             "dist", "build", "__pycache__", "testdata", "fixtures"}
+# testdata/fixtures on top of the shared floor: real Dockerfiles that belong
+# to a test suite, not the product being shipped.
+SKIP_DIRS = _tool.SKIP_DIRS | {"testdata", "fixtures"}
 
 _DIGEST = re.compile(r"@sha256:[0-9a-f]{64}", re.I)
 # Secret-shaped build args and env vars, matched as whole tokens: "AUTHOR"

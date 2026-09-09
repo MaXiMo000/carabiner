@@ -14,6 +14,15 @@ from dataclasses import dataclass, field
 
 SEVERITIES = ("info", "low", "medium", "high", "critical")
 
+# Bumps only on a breaking change to as_dict()'s shape -- a field renamed or
+# removed. Adding a field is not breaking and does not bump it. schema/
+# finding.schema.json is the published, checked contract this number refers
+# to: the "one normalized model" the README describes is only really one
+# model for a downstream consumer (invariant's `receipt` check type is the
+# model for what that composition looks like) once it is versioned rather
+# than implied by whatever as_dict() happens to return today.
+SCHEMA_VERSION = 1
+
 
 def rank(severity: str) -> int:
     return SEVERITIES.index(severity) if severity in SEVERITIES else 0
@@ -103,6 +112,7 @@ class Finding:
 
     def as_dict(self) -> dict:
         return {
+            "schema_version": SCHEMA_VERSION,
             "fingerprint": self.fingerprint, "engine": self.engine,
             "rule": self.rule, "severity": self.severity, "path": self.path,
             "line": self.line, "message": self.message, "fix": self.fix,

@@ -59,9 +59,9 @@ def _bin() -> str | None:
 
 
 # Directories that are never worth walking for a manifest and are the reason a
-# naive recursive glob is slow.
-SKIP_DIRS = {"node_modules", ".git", ".venv", "venv", "env", "vendor", "dist",
-             "build", "target", "__pycache__", ".tox", ".mypy_cache", ".next"}
+# naive recursive glob is slow. `env`, `.tox`, `.mypy_cache` and `.next` on
+# top of the shared floor: never hold a manifest of their own.
+SKIP_DIRS = _tool.SKIP_DIRS | {"env", ".tox", ".mypy_cache", ".next"}
 
 
 def manifest_dirs(root: pathlib.Path, max_depth: int = 3) -> list[str]:

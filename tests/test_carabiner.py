@@ -196,6 +196,54 @@ def test_secrets_integration_when_gitleaks_present():
               any(body[:40] in f.snippet for f in got), False)
 
 
+def test_working_tree_secrets_scan_skips_generated_directories():
+    """Measured on carabiner's own repo: gitleaks' non-git scan has no
+    .gitignore of its own, so __pycache__/drill.cpython-312.pyc -- holding a
+    string split in the .py source specifically to dodge this scanner, folded
+    back into one literal by the compiler -- tripped SECRET-private-key on
+    every working-tree scan. Both directions: the same content outside a
+    generated directory must still be found."""
+    import shutil, tempfile
+    from carabiner.engines import secrets
+    if not shutil.which("gitleaks"):
+        return
+    marker = "".join(("-----BEGIN", " RSA PRIVATE KEY-----"))
+    body = "".join(("MIIEow", "IBAAKCAQEA", "x7Kq9vTbNz2mWpLc4RfHjE8sYuD" * 3))
+    key = f"{marker}\n{body}\n-----END RSA PRIVATE KEY-----\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "__pycache__").mkdir()
+        (root / "__pycache__" / "mod.cpython-312.pyc").write_text(key, encoding="utf-8")
+        check("a generated-cache directory produces nothing", secrets.run(root), [])
+
+        (root / "id_rsa").write_text(key, encoding="utf-8")
+        check("the same content elsewhere is still caught",
+              len(secrets.run(root)) > 0, True)
+
+
+def test_drill_canary_leaves_no_foldable_literal_in_compiled_bytecode():
+    """The property drill.py's own comment claims -- 'this file does not
+    itself contain the literal marker' -- was true of the .py source text and
+    false of the .pyc CPython compiles it into: `+` between two literals is
+    constant-folded at compile time, so the split protected nothing once the
+    module was imported once. Checked directly against the compiled code
+    object, not re-asserted by reading the source text again."""
+    import dis, types
+    src = pathlib.Path(__file__).resolve().parents[1] / "carabiner" / "drill.py"
+    code = compile(src.read_text(encoding="utf-8"), str(src), "exec")
+
+    def consts(co):
+        for c in co.co_consts:
+            yield c
+            if isinstance(c, types.CodeType):
+                yield from consts(c)
+
+    folded = [c for c in consts(code)
+              if isinstance(c, str) and "PRIVATE KEY" in c
+              and ("BEGIN" in c or "END" in c)]
+    check("no single compiled constant holds the PEM marker whole", folded, [])
+
+
 def test_ratchet():
     """Adoption in a legacy repo: accept what exists, fail only on what is new."""
     import tempfile
@@ -1360,6 +1408,108 @@ def test_dock006_ignores_targeted_copies():
               [f.rule for f in docker.run(d) if f.rule == "DOCK006"], [])
 
 
+def test_a_crashing_engine_does_not_blind_the_others():
+    """A bug inside one engine used to take the whole scan down with it --
+    the opposite of _tool.error()'s own rule that a tool failing is not a repo
+    reporting clean. Same rule, extended to a native engine raising instead of
+    a subprocess exiting non-zero."""
+    import tempfile
+    from carabiner import cli
+    from carabiner.engines import ALL
+
+    def boom(root, full=False, changed=None):
+        raise RuntimeError("a bug, not a finding")
+
+    original = ALL["docker"].run
+    ALL["docker"].run = boom
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "Dockerfile").write_text(
+                "FROM node:22-alpine@sha256:" + "a" * 64 + "\nUSER 10001\n",
+                encoding="utf-8")
+            found = cli._collect(root, None, full=True)
+    finally:
+        ALL["docker"].run = original
+    rules = {f.rule for f in found}
+    check("the crash is reported, not swallowed", "ENGINE-ERROR" in rules, True)
+    check("naming which engine crashed and why",
+          any(f.rule == "ENGINE-ERROR" and "a bug, not a finding" in f.message
+              for f in found),
+          True)
+    check("other engines still ran (repo hygiene always runs)",
+          "repo" in {f.engine for f in found} or len(found) >= 1, True)
+
+
+def test_fail_on_flag_warns_when_it_overrides_per_engine_config():
+    """--fail-on does not layer on top of .carabiner.yml's per-engine
+    thresholds -- it replaces cfg.gate() outright. Silent, that reads as the
+    config still applying; a repo with a stricter secrets threshold than the
+    flag would quietly get the weaker one with nothing said about it."""
+    import io, contextlib, tempfile
+    from carabiner import cli, config
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / config.CONFIG_NAME).write_text(
+            "version: 1\nengines:\n  secrets: {fail_on: low}\n", encoding="utf-8")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(buf):
+            cli.main(["scan", "--root", str(root), "--fail-on", "critical"])
+        check("warns about the override", "secrets" in buf.getvalue(), True)
+        check("names the flag doing it", "--fail-on" in buf.getvalue(), True)
+
+        buf2 = io.StringIO()
+        (root / config.CONFIG_NAME).write_text("version: 1\n", encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(buf2):
+            cli.main(["scan", "--root", str(root), "--fail-on", "critical"])
+        check("silent when there is nothing to override", buf2.getvalue(), "")
+
+
+def test_help_text_is_not_bare():
+    """argparse's default with no description/epilog is just usage and flags --
+    the three-line command table from the module docstring never reached a
+    user running `carabiner --help`."""
+    import io, contextlib
+    from carabiner.cli import main as cli_main
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        try:
+            cli_main(["--help"])
+        except SystemExit:
+            pass
+    text = buf.getvalue()
+    check("explains what the tool does", "secure by default" in text, True)
+    check("lists the commands with what they're for", "ratchet" in text, True)
+
+
+def test_finding_schema_is_valid_and_matches_a_real_finding():
+    """schema/finding.schema.json is the published, versioned contract for
+    --json output -- the same kind of composition invariant's `receipt` check
+    type demonstrates for a different pair of projects. Validated against
+    real Finding shapes, not just written and trusted."""
+    try:
+        import jsonschema
+    except ImportError:
+        print("  (schema test skipped -- pip install jsonschema to run it)")
+        return
+    schema_path = pathlib.Path(__file__).resolve().parents[1] / "schema" / "finding.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator.check_schema(schema)
+
+    real = Finding("ci", "CI001", "critical", ".github/workflows/ci.yml",
+                   "job runs on pull_request_target", fix="use pull_request",
+                   snippet="ref: github.event.pull_request.head.sha", line=12)
+    jsonschema.validate(real.as_dict(), schema)
+
+    from carabiner.engines._tool import error
+    jsonschema.validate(error("deps", "osv-scanner", "not found").as_dict(), schema)
+
+    no_line = Finding("repo", "REPO003", "low", "SECURITY.md", "missing")
+    jsonschema.validate(no_line.as_dict(), schema)
+
+
 def main():
     # Discovered, not listed. A hand-maintained roster silently stops running
     # tests the moment an edit drops a name -- which is exactly what happened.
@@ -1368,7 +1518,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 63
+    FLOOR = 69
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

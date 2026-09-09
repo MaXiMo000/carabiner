@@ -29,9 +29,16 @@ API = "https://api.github.com"
 # Obviously synthetic, structurally valid enough for a scanner's private-key
 # rule, and not a credential to anything. Assembled rather than written out so
 # this file does not itself contain the literal marker.
-_CANARY_MARKER = "-----BEGIN" + " RSA PRIVATE KEY-----"
-_CANARY_BODY = "MIIEowIBAAKCAQEA" + "cArAbInErDrIlLnOtArEaLkEy0123456789" * 4
-CANARY = f"{_CANARY_MARKER}\n{_CANARY_BODY}\n-----END" + " RSA PRIVATE KEY-----\n"
+#
+# `+` between two literals is not enough: CPython constant-folds it at compile
+# time, so the "split" marker still lands whole in this module's own compiled
+# .pyc as a single marshaled string -- gitleaks matched exactly that, in
+# carabiner/__pycache__/drill.*.pyc, on carabiner's own repo. `str.join` is a
+# runtime call the compiler does not fold, so the halves stay separate all the
+# way through compilation. Verified with `dis.dis`, not assumed.
+_CANARY_MARKER = "".join(("-----BEGIN", " RSA PRIVATE KEY-----"))
+_CANARY_BODY = "".join(("MIIEowIBAAKCAQEA", "cArAbInErDrIlLnOtArEaLkEy0123456789" * 4))
+CANARY = "".join((_CANARY_MARKER, "\n", _CANARY_BODY, "\n-----END", " RSA PRIVATE KEY-----\n"))
 
 
 def _finding(rule, severity, message, fix, snippet="") -> Finding:
