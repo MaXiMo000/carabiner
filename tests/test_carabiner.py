@@ -496,6 +496,47 @@ def test_sarif_is_wellformed():
               for r in run["tool"]["driver"]["rules"]), True)
 
 
+def test_gitlab_sast_report_validates_against_the_real_schema():
+    """The merge-request Security widget's adoption surface, same reasoning
+    as SARIF's own test: GitLab rejects a report that fails schema
+    validation, so a malformed field means zero findings shown, not a
+    warning. Validated against a vendored copy of GitLab's own published
+    schema (tests/fixtures/gitlab-sast-report-format.schema.json) rather
+    than hand-checked field names, for the same reason the Finding schema
+    test doesn't just eyeball as_dict()."""
+    try:
+        import jsonschema
+    except ImportError:
+        print("  (gitlab schema test skipped -- pip install jsonschema to run it)")
+        return
+    import json
+    from carabiner.report import gitlab
+
+    schema = json.loads((FIXTURES / "gitlab-sast-report-format.schema.json")
+                        .read_text(encoding="utf-8"))
+    findings = scan(FIXTURES / "ci_pull_request_target") + [
+        Finding("repo", "REPO003", "low", "SECURITY.md", "no policy"),
+        Finding("secrets", "SECRET-aws", "high", "a.py", "a credential", snippet="k"),
+    ]
+    doc = json.loads(gitlab.render(findings))
+    jsonschema.validate(doc, schema)
+
+    check("scan type is sast", doc["scan"]["type"], "sast")
+    check("severities map onto GitLab's own enum",
+          {v["severity"] for v in doc["vulnerabilities"]} <=
+          {"Info", "Unknown", "Low", "Medium", "High", "Critical"}, True)
+    check("critical maps correctly",
+          {v["severity"] for v in doc["vulnerabilities"]
+           if v["name"] == "CI001"}, {"Critical"})
+    check("every vulnerability carries our rule as its identifier",
+          {v["identifiers"][0]["value"] for v in doc["vulnerabilities"]} ==
+          {f.rule for f in findings}, True)
+    # An empty run must still validate -- GitLab CI runs this on every
+    # commit, and a report that only validates when something is wrong
+    # would fail silently on the good days.
+    jsonschema.validate(json.loads(gitlab.render([])), schema)
+
+
 def test_action_does_not_commit_the_injection_it_reports():
     """action.yml interpolating ${{ inputs.* }} into a run: block would be CI002.
     A tool that ships the finding it reports has nothing to say to anyone."""
@@ -1510,6 +1551,43 @@ def test_finding_schema_is_valid_and_matches_a_real_finding():
     jsonschema.validate(no_line.as_dict(), schema)
 
 
+def test_no_catastrophic_backtracking_in_the_hand_written_regex_set():
+    """Every engine here reads attacker-influenced text: a workflow file, a
+    Dockerfile, a Jenkinsfile a fork's PR can modify. A regex with the classic
+    ReDoS shape -- a quantifier nested inside a repeated group, or several
+    unbounded character classes in a row with no disambiguating anchor
+    between them -- turns a normal-sized file into a hang, and a security
+    scanner that can be made to hang is itself a denial-of-service surface.
+
+    Measured, not asserted: each pattern below is timed against an input
+    engineered to maximise backtracking for its specific shape (a long run
+    that almost satisfies a repeated group, then fails at the very end,
+    which is what forces a vulnerable engine to explore every partition
+    before giving up). A generous 2s budget for up to 200,000 characters --
+    genuine exponential blowup misses that budget by many orders of
+    magnitude at even a fraction of this size, so this is a real tripwire,
+    not a flaky timing assertion."""
+    import time
+    from carabiner.engines.docker import _COPY_ALL, _PIPE_TO_SHELL, _TLS_OFF
+    from carabiner.engines._otherci import _GROOVY_SH
+
+    N = 50_000
+    cases = [
+        ("docker._COPY_ALL", _COPY_ALL,
+         "COPY " + ("--aaaaaaaaaaaaaaaaaaaa " * N) + "XFAIL"),
+        ("docker._PIPE_TO_SHELL", _PIPE_TO_SHELL, "curl " + "x" * (N * 4)),
+        ("docker._TLS_OFF", _TLS_OFF, "x" * (N * 4)),
+        ("_otherci._GROOVY_SH", _GROOVY_SH,
+         'sh "' + "x" * N + "${" + "y" * N + "}" + "z" * N),
+    ]
+    for name, pattern, payload in cases:
+        start = time.monotonic()
+        pattern.search(payload)
+        elapsed = time.monotonic() - start
+        check(f"{name} stays linear on {len(payload):,} adversarial chars",
+              elapsed < 2.0, True)
+
+
 def main():
     # Discovered, not listed. A hand-maintained roster silently stops running
     # tests the moment an edit drops a name -- which is exactly what happened.
@@ -1518,7 +1596,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 69
+    FLOOR = 71
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

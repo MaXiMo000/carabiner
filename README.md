@@ -121,6 +121,23 @@ Add `args: --all --summary carabiner.md` and post that file as a PR comment to
 get one short line per PR — `2 new · 1 fixed · 340 accepted` — instead of the
 whole backlog restated every time.
 
+## On GitLab CI
+
+```yaml
+carabiner:
+  script:
+    - pip install carabiner-sec
+    - carabiner scan --all --gitlab-sast gl-sast-report.json --fail-on low
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+```
+
+`--gitlab-sast` writes a report GitLab's own merge-request Security widget
+reads natively — the same adoption surface `--sarif` gives on GitHub.
+Validated against GitLab's own published schema in the test suite, not just
+hand-checked field names, for the same reason the SARIF output is.
+
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash

@@ -21,7 +21,7 @@ from .engines import networked as engines_networked
 from .engines import full_only as engines_full_only
 from .engines._tool import error as _engine_error
 from .finding import rank
-from .report import human, sarif
+from .report import gitlab, human, sarif
 
 
 def _collect(root: pathlib.Path, only: list[str] | None, full: bool = False,
@@ -160,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--sarif", metavar="PATH",
                     help="write SARIF 2.1.0 for GitHub code scanning")
+    ap.add_argument("--gitlab-sast", metavar="PATH",
+                    help="write a GitLab SAST report for the merge request "
+                         "Security widget (report schema 15)")
     ap.add_argument("--summary", metavar="PATH",
                     help="write a short markdown summary for a PR comment")
     ap.add_argument("--expires", type=int, metavar="DAYS",
@@ -275,6 +278,13 @@ def main(argv: list[str] | None = None) -> int:
         from . import __version__
         pathlib.Path(args.sarif).write_text(sarif.render(findings, __version__), encoding="utf-8")
         print(f"wrote {len(findings)} findings to {args.sarif}")
+
+    if args.gitlab_sast:
+        # Same inventory-not-diff reasoning as --sarif above.
+        from . import __version__
+        pathlib.Path(args.gitlab_sast).write_text(
+            gitlab.render(findings, __version__), encoding="utf-8")
+        print(f"wrote {len(findings)} findings to {args.gitlab_sast}")
 
     if args.json:
         print(json.dumps({"new": [f.as_dict() for f in new],
