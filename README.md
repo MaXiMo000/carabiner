@@ -77,8 +77,8 @@ each time. Emitted as SARIF so findings land in the PR Security tab — which is
 `--json`'s shape is [`schema/finding.schema.json`](schema/finding.schema.json)
 — versioned (`schema_version`, bumped only on a breaking change), so a
 downstream consumer isn't trusting an implicit contract. This is what
-[invariant](https://github.com/MaXiMo000/invariant)'s `receipt` check type
-demonstrates for a different pair of tools: read one project's evidence,
+[invariant](https://github.com/MaXiMo000/invariant)'s `security_scan` check
+type demonstrates for a different pair of tools: read one project's evidence,
 assert on it from another.
 
 ## Adopt it
