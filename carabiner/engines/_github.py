@@ -188,6 +188,19 @@ def _step_text(step: dict) -> str:
         return str(step)
 
 
+# `./path` and `$/path` both name an action in this repository -- `$/` is
+# the repository root, whatever the working directory. Neither can be pinned
+# and neither crosses a trust boundary.
+_LOCAL = ("./", "$/")
+
+
+def _untrusted_ref(ref: str) -> bool:
+    """A checkout `ref:` that names the contributor's code. With no `ref:`,
+    pull_request_target and workflow_run check out the base repository's own
+    default branch -- trusted code, which fastapi's docs deploy relies on."""
+    return "github.event.pull_request" in ref or "head" in ref.lower()         or "refs/pull/" in ref
+
+
 def run(root: pathlib.Path) -> list[Finding]:
     out: list[Finding] = []
     # Sentinel rather than None, because None is a real answer here: "asked, and
@@ -218,8 +231,7 @@ def run(root: pathlib.Path) -> list[Finding]:
             for job_name, _job, step in _steps(doc):
                 uses = str(step.get("uses", ""))
                 ref = str((step.get("with") or {}).get("ref", ""))
-                if uses.startswith("actions/checkout") and (
-                        "github.event.pull_request" in ref or "head" in ref.lower()):
+                if uses.startswith("actions/checkout") and _untrusted_ref(ref):
                     # A job-level `if:` comparing the PR author is a real
                     # mitigation -- a login is not attacker-settable. Discourse
                     # gates exactly this workflow to dependabot. Still reported,
@@ -296,8 +308,9 @@ def run(root: pathlib.Path) -> list[Finding]:
             secrets_used = set(re.findall(
                 r"secrets\.([A-Za-z_][A-Za-z0-9_]*)", blob))
             secrets_used.discard("GITHUB_TOKEN")
-            if secrets_used and any("uses" in s and "checkout" in str(s.get("uses", ""))
-                                    for s in steps):
+            untrusted = [s for s in steps if "checkout" in str(s.get("uses", ""))
+                         and _untrusted_ref(str((s.get("with") or {}).get("ref", "")))]
+            if secrets_used and untrusted:
                 out.append(Finding(
                     "ci", "CI006", "high", rel,
                     f"job '{job_name}' runs on an untrusted trigger, checks out "
@@ -310,9 +323,7 @@ def run(root: pathlib.Path) -> list[Finding]:
 
             # CI008 -- checkout leaves the token in .git/config unless told not
             # to, and every later step in the job can read it.
-            for st in steps:
-                if "checkout" not in str(st.get("uses", "")):
-                    continue
+            for st in untrusted:
                 with_ = st.get("with") or {}
                 if str(with_.get("persist-credentials", "")).lower() != "false":
                     out.append(Finding(
@@ -350,7 +361,7 @@ def run(root: pathlib.Path) -> list[Finding]:
             # one of these in a 60-repo corpus was local, and flagging them
             # would have added 106 findings that mean nothing. The risk is
             # handing every secret to a workflow someone else controls.
-            if called.startswith("./") or not called:
+            if called.startswith(_LOCAL) or not called:
                 continue
             out.append(Finding(
                 "ci", "CI009", "high" if risky_trigger else "medium", rel,
@@ -386,7 +397,7 @@ def run(root: pathlib.Path) -> list[Finding]:
 
             # CI003 -- mutable action references.
             uses = str(step.get("uses", ""))
-            if uses and not uses.startswith(("./", "docker://")):
+            if uses and not uses.startswith((*_LOCAL, "docker://")):
                 ref = uses.partition("@")[2]
                 if not ref or not _SHA.match(ref):
                     # Resolved on the first unpinned reference and not before:

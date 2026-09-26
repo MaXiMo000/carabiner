@@ -54,7 +54,7 @@ def available(root: pathlib.Path) -> bool:
 def _tracked(root: pathlib.Path) -> list[str]:
     try:
         r = subprocess.run(["git", "ls-files", "-z"], cwd=root, timeout=20,
-                           capture_output=True, text=True, check=False)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     except (OSError, subprocess.SubprocessError):
         return []
     return [p for p in r.stdout.split("\0") if p]
@@ -183,7 +183,7 @@ def changed_files(root: pathlib.Path) -> set[str] | None:
                  ["ls-files", "--others", "--exclude-standard"]):
         try:
             r = subprocess.run(["git", *args], cwd=root, capture_output=True,
-                               text=True, timeout=30, check=False)
+                               text=True, encoding="utf-8", errors="replace", timeout=30, check=False)
         except (OSError, subprocess.SubprocessError):
             continue
         if r.returncode == 0:

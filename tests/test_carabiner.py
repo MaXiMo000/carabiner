@@ -1337,7 +1337,8 @@ def test_untrusted_trigger_family():
             return {f.rule for f in C.run(root)}
 
     HEAD = "permissions: {contents: read}\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
-    CHECKOUT = "      - uses: actions/checkout@v4\n"
+    CHECKOUT = ("      - uses: actions/checkout@v4\n        with:\n"
+                "          ref: ${{ github.event.pull_request.head.sha }}\n")
 
     # CI006: a real secret in reach of checked-out contributor code.
     body = "on: pull_request_target\n" + HEAD + CHECKOUT + \
@@ -1349,13 +1350,22 @@ def test_untrusted_trigger_family():
         "on: pull_request_target\n" + HEAD + CHECKOUT +
         "      - run: gh pr view\n        env:\n          T: ${{ secrets.GITHUB_TOKEN }}\n"), False)
 
+    # With no `ref:` these triggers check out the base branch -- trusted code.
+    # fastapi's docs deploy does exactly this, with Cloudflare secrets in scope.
+    base = body.replace(CHECKOUT, "      - uses: actions/checkout@v4\n")
+    check("checking out the base branch is not untrusted code", "CI006" in scan(base), False)
+    check("workflow_run head_sha is untrusted", "CI006" in scan(body.replace(
+        "on: pull_request_target", "on: workflow_run").replace(
+        "github.event.pull_request.head.sha", "github.event.workflow_run.head_sha")), True)
+
     # CI008: checkout leaves the token in .git/config for every later step.
     check("persist-credentials left on",
           "CI008" in scan("on: pull_request_target\n" + HEAD + CHECKOUT), True)
     check("turning it off clears the finding",
           "CI008" in scan("on: pull_request_target\n" + HEAD +
                           "      - uses: actions/checkout@v4\n"
-                          "        with:\n          persist-credentials: false\n"), False)
+                          "        with:\n          ref: refs/pull/1/head\n"
+                          "          persist-credentials: false\n"), False)
 
     # CI010: a cache written from an untrusted trigger can be poisoned.
     check("cache on an untrusted trigger",
@@ -1383,6 +1393,37 @@ def test_secrets_inherit_only_matters_across_a_trust_boundary():
           "CI009" in scan("./.github/workflows/build.yml"), False)
     check("someone else's workflow is",
           "CI009" in scan("other-org/repo/.github/workflows/build.yml@main"), True)
+    check("`$/` is the repository root, so local too",
+          "CI009" in scan("$/.github/workflows/build.yml"), False)
+
+
+def test_repo_root_actions_are_local():
+    """`uses: $/.github/actions/x` -- vite and home-assistant both use it -- is
+    an action in this repository. There is nothing to pin."""
+    import tempfile
+    from carabiner.engines import ci as C
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / ".github" / "workflows").mkdir(parents=True)
+        (root / ".github" / "workflows" / "w.yml").write_text(
+            "on: push\npermissions: {contents: read}\njobs:\n  j:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n"
+            "      - uses: $/.github/actions/setup\n", encoding="utf-8")
+        check("$/ action is not CI003", [f.rule for f in C.run(root)], [])
+
+
+def test_git_output_with_non_ascii_paths():
+    """vite tracks files with non-ASCII names. On Windows, text=True decoded
+    `git ls-files` as cp1252, the decode failed, stdout came back None, and
+    the repo engine crashed."""
+    import subprocess, tempfile
+    from carabiner.engines import repo as R
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        (root / "héllo-世界.txt").write_text("x", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        check("non-ASCII tracked path survives", R._tracked(root), ["héllo-世界.txt"])
 
 
 def test_diff_mode_scans_only_what_changed():
