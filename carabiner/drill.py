@@ -171,6 +171,16 @@ def github_controls(root: pathlib.Path) -> list[Finding]:
             "Settings -> Code security -> enable push protection; it blocks the "
             "push rather than telling you afterwards", snippet=str(pp)))
 
+    # DRILL024 -- secret scanning itself, not just its push-time block: with
+    # it off, a secret already in the history is never reported at all.
+    ss = ((sec.get("secret_scanning") or {}).get("status"))
+    if ss == "disabled":
+        out.append(_finding(
+            "DRILL024", "medium", "secret scanning is disabled",
+            "Settings -> Code security -> enable secret scanning; it reports "
+            "credentials already in the history, which push protection never sees",
+            snippet="secret_scanning: disabled"))
+
     # DRILL012 -- the default workflow token. CI004 checks what a workflow
     # declares; only the API says what it inherits when it declares nothing.
     perms, err = _get(f"/repos/{slug}/actions/permissions/workflow", token)
@@ -183,6 +193,13 @@ def github_controls(root: pathlib.Path) -> list[Finding]:
             "without an explicit permissions block runs with write access",
             "Settings -> Actions -> set the default to read-only and widen per "
             "job", snippet="default_workflow_permissions: write"))
+    if not err and perms.get("can_approve_pull_request_reviews"):
+        out.append(_finding(
+            "DRILL023", "high",
+            "workflows can approve pull requests -- a required review can be "
+            "satisfied by a bot, including on a PR that changed the workflow",
+            "Settings -> Actions -> uncheck 'Allow GitHub Actions to create and "
+            "approve pull requests'", snippet="can_approve_pull_request_reviews: true"))
 
     # DRILL017 -- Dependabot alerts: the cheapest control there is, and one
     # people believe is on because the config file exists.
@@ -216,39 +233,125 @@ def github_controls(root: pathlib.Path) -> list[Finding]:
             "informational -- confirms the upload path works"))
 
     # DRILL013 -- protection on the default branch, and whether it is real.
+    # Two mechanisms can protect a branch: classic protection rules and
+    # rulesets. Reading only the classic endpoint called a branch protected
+    # by a ruleset "unprotected" -- a false HIGH on exactly the repos that
+    # had moved to the newer mechanism.
     branch = repo.get("default_branch") or "main"
-    prot, err = _get(f"/repos/{slug}/branches/{branch}/protection", token)
-    if err == "HTTP 404":
+    prot, prot_err = _get(f"/repos/{slug}/branches/{branch}/protection", token)
+    rules, rules_err = _get(f"/repos/{slug}/rules/branches/{branch}", token)
+    if prot_err and prot_err != "HTTP 404":
+        out.append(_unverified("DRILL013", "branch protection", prot_err))
+        return out
+    if rules_err and rules_err != "HTTP 404":
+        rules = []  # classic protection alone is still checkable
+    policy = branch_policy(None if prot_err else prot, rules if isinstance(rules, list) else [])
+    if policy is None:
         out.append(_finding(
             "DRILL013", "high",
-            f"the default branch '{branch}' has no protection rule -- CI cannot "
-            "gate what can be pushed to directly",
+            f"the default branch '{branch}' has no protection rule or ruleset -- CI "
+            "cannot gate what can be pushed to directly",
             "require a PR and at least one passing status check before merge"))
-    elif err:
-        out.append(_unverified("DRILL013", "branch protection", err))
-    else:
-        checks = ((prot.get("required_status_checks") or {}).get("contexts")
-                  or (prot.get("required_status_checks") or {}).get("checks") or [])
-        if not checks:
+        return out
+
+    where = f"'{branch}' ({policy['source']})"
+    if not policy["checks"]:
+        out.append(_finding(
+            "DRILL014", "high",
+            f"{where} requires NO status checks -- the security workflow runs, "
+            "fails, and the PR merges anyway",
+            "mark the security job a required check; a workflow that cannot "
+            "block a merge is a notification, not a gate"))
+    if not policy["requires_pr"]:
+        out.append(_finding(
+            "DRILL019", "high",
+            f"{where} doesn't require a pull request -- changes can be pushed "
+            "straight to it, past every review and check",
+            "require a pull request before merging"))
+    elif policy["approvals"] == 0:
+        out.append(_finding(
+            "DRILL020", "medium",
+            f"{where} requires a pull request but zero approvals -- authors can "
+            "merge their own changes",
+            "require at least one approving review"))
+    if policy["force_push_allowed"]:
+        out.append(_finding(
+            "DRILL015", "medium",
+            f"force pushes are allowed to '{branch}'",
+            "disable force pushes; they rewrite the history your audit trail "
+            "depends on"))
+    if policy["admins_enforced"] is False:
+        out.append(_finding(
+            "DRILL016", "low",
+            f"branch protection on '{branch}' does not apply to admins",
+            "enable 'Do not allow bypassing the above settings' -- a rule "
+            "with exceptions is a default, not a control"))
+
+    # DRILL021/022 -- CODEOWNERS that looks like a gate and isn't. GitHub
+    # silently ignores a line with an unknown owner or bad syntax, and the
+    # whole file only gates anything when code-owner review is required.
+    codeowners = next((c for c in ("CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS")
+                       if (root / c).is_file()), None)
+    if codeowners:
+        errors, err = _get(f"/repos/{slug}/codeowners/errors", token)
+        if err:
+            out.append(_unverified("DRILL021", "CODEOWNERS validity", err))
+        elif (errors or {}).get("errors"):
+            lines = [f"line {e.get('line')}: {e.get('message', e.get('kind', '?')).splitlines()[0]}"
+                     for e in errors["errors"]][:5]
             out.append(_finding(
-                "DRILL014", "high",
-                f"'{branch}' is protected but requires NO status checks -- the "
-                "security workflow runs, fails, and the PR merges anyway",
-                "mark the security job a required check; a workflow that cannot "
-                "block a merge is a notification, not a gate"))
-        if (prot.get("allow_force_pushes") or {}).get("enabled"):
+                "DRILL021", "medium",
+                f"{codeowners} has {len(errors['errors'])} line(s) GitHub ignores "
+                "-- those paths have no code owner at all",
+                "fix the owners GitHub can't resolve (a typo'd team, a user "
+                "without write access)", snippet="; ".join(lines)))
+        if not policy["code_owner_review"]:
             out.append(_finding(
-                "DRILL015", "medium",
-                f"force pushes are allowed to '{branch}'",
-                "disable force pushes; they rewrite the history your audit trail "
-                "depends on"))
-        if not (prot.get("enforce_admins") or {}).get("enabled"):
-            out.append(_finding(
-                "DRILL016", "low",
-                f"branch protection on '{branch}' does not apply to admins",
-                "enable 'Do not allow bypassing the above settings' -- a rule "
-                "with exceptions is a default, not a control"))
+                "DRILL022", "medium",
+                f"{codeowners} exists but {where} doesn't require code-owner "
+                "review -- the owners are notified, never required",
+                "enable 'Require review from Code Owners'"))
     return out
+
+
+def branch_policy(prot: dict | None, rules: list) -> dict | None:
+    """One view of a branch's protection, from classic protection (the
+    /protection response) and/or the rulesets that apply to it (the
+    /rules/branches response). None if neither protects it. Where both do,
+    the stronger requirement wins -- GitHub enforces both.
+
+    admins_enforced is None for a ruleset-only branch: its bypass list isn't
+    in the rules response, so it's reported as unknown, never as fine."""
+    if not prot and not rules:
+        return None
+    sources = [name for name, present in (("protection rule", prot), ("ruleset", rules)) if present]
+    policy = {"source": " + ".join(sources), "requires_pr": False, "approvals": 0,
+              "code_owner_review": False, "checks": [], "force_push_allowed": True,
+              "admins_enforced": None}
+    if prot:
+        reviews = prot.get("required_pull_request_reviews")
+        if reviews is not None:
+            policy["requires_pr"] = True
+            policy["approvals"] = reviews.get("required_approving_review_count", 0) or 0
+            policy["code_owner_review"] = bool(reviews.get("require_code_owner_reviews"))
+        rsc = prot.get("required_status_checks") or {}
+        policy["checks"] += list(rsc.get("contexts") or []) + [
+            c.get("context") for c in rsc.get("checks") or [] if c.get("context")]
+        policy["force_push_allowed"] = bool((prot.get("allow_force_pushes") or {}).get("enabled"))
+        policy["admins_enforced"] = bool((prot.get("enforce_admins") or {}).get("enabled"))
+    for rule in rules:
+        params = rule.get("parameters") or {}
+        kind = rule.get("type")
+        if kind == "pull_request":
+            policy["requires_pr"] = True
+            policy["approvals"] = max(policy["approvals"], params.get("required_approving_review_count", 0) or 0)
+            policy["code_owner_review"] |= bool(params.get("require_code_owner_review"))
+        elif kind == "required_status_checks":
+            policy["checks"] += [c.get("context") for c in params.get("required_status_checks") or []
+                                 if c.get("context")]
+        elif kind == "non_fast_forward":
+            policy["force_push_allowed"] = False
+    return policy
 
 
 def run(root: pathlib.Path, offline: bool = False) -> list[Finding]:

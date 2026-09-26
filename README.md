@@ -56,10 +56,25 @@ merges anyway.
 
 ```
 $ carabiner drill
-  HIGH     DRILL002  pre-commit hooks are configured but NOT installed --
-                     the config looks right and nothing runs
-  HIGH     DRILL012  the repository default GITHUB_TOKEN is read/WRITE
+  HIGH     DRILL002  pre-commit hooks are configured but NOT installed -- the config looks right and nothing runs
+  HIGH     DRILL019  'main' (protection rule) doesn't require a pull request -- changes can be pushed straight to it, past every review and check
+  MEDIUM   DRILL017  Dependabot vulnerability alerts are disabled
+  LOW      DRILL016  branch protection on 'main' does not apply to admins
 ```
+
+(Real output: carabiner drilling its own repository.)
+
+| Drill | What it proves |
+|---|---|
+| DRILL001-004 | the pre-commit hooks exist, are installed, and actually block a planted private key |
+| DRILL011 / 024 | secret scanning and its push protection are really on |
+| DRILL012 | the default workflow token is read-only |
+| DRILL023 | workflows can't approve pull requests (which would let a bot satisfy a required review) |
+| DRILL013 / 014 | the default branch is protected -- by a classic rule *or* a ruleset -- and a status check is required |
+| DRILL019 / 020 | a pull request is required, with at least one approval |
+| DRILL015 / 016 | no force pushes, and no admin bypass |
+| DRILL021 / 022 | CODEOWNERS has no lines GitHub silently ignores, and code-owner review is actually required |
+| DRILL017 / 018 | Dependabot alerts are on, and SARIF uploads actually arrive |
 
 A drill that could not run **never reports as passing** — no token, no network,
 no `pre-commit` binary all produce "could NOT be verified", not a green check.
@@ -107,7 +122,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: MaXiMo000/carabiner@v0.2.1
+  - uses: MaXiMo000/carabiner@v0.3.0
   - uses: github/codeql-action/upload-sarif@v3
     with:
       sarif_file: carabiner.sarif
@@ -141,7 +156,7 @@ hand-checked field names, for the same reason the SARIF output is.
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash
-docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.2.1 scan --all
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.3.0 scan --all
 ```
 
 The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its
@@ -153,7 +168,7 @@ build-provenance attestation.
 ```yaml
 repos:
   - repo: https://github.com/MaXiMo000/carabiner
-    rev: v0.2.1
+    rev: v0.3.0
     hooks:
       - id: carabiner
 ```

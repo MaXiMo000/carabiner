@@ -627,6 +627,119 @@ def test_drill_never_passes_what_it_could_not_check():
         check("unverified is not silence", api[0].severity, "low")
 
 
+def _github_drill(routes: dict, files: dict | None = None) -> dict:
+    """Run the GitHub-API drills against a fake API. `routes` maps an API
+    path to a payload, or to "HTTP 404"-style error text. Returns
+    {rule: [finding, ...]}."""
+    import os
+    import tempfile
+    from unittest import mock
+
+    from carabiner import drill
+
+    def fake_get(path, token):
+        got = routes.get(path, "HTTP 404")
+        return (None, got) if isinstance(got, str) else (got, None)
+
+    base = {"/repos/o/r": {"default_branch": "main", "security_and_analysis": {
+                "secret_scanning": {"status": "enabled"},
+                "secret_scanning_push_protection": {"status": "enabled"}}},
+            "/repos/o/r/actions/permissions/workflow": {
+                "default_workflow_permissions": "read", "can_approve_pull_request_reviews": False},
+            "/repos/o/r/vulnerability-alerts": "HTTP 204",
+            "/repos/o/r/code-scanning/analyses?per_page=1": [],
+            "/repos/o/r/rules/branches/main": []}
+    routes = {**base, **routes}
+    with tempfile.TemporaryDirectory() as tmp, \
+            mock.patch.object(drill, "_get", fake_get), \
+            mock.patch.object(drill, "origin_slug", lambda root: "o/r"), \
+            mock.patch.dict(os.environ, {"GITHUB_TOKEN": "t"}):
+        root = pathlib.Path(tmp)
+        for name, text in (files or {}).items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text, encoding="utf-8")
+        found = drill.github_controls(root)
+    out: dict = {}
+    for f in found:
+        out.setdefault(f.rule, []).append(f)
+    return out
+
+
+_GOOD_PROTECTION = {
+    "required_pull_request_reviews": {"required_approving_review_count": 1,
+                                      "require_code_owner_reviews": True},
+    "required_status_checks": {"contexts": ["carabiner"]},
+    "allow_force_pushes": {"enabled": False},
+    "enforce_admins": {"enabled": True},
+}
+
+
+def test_drill_a_well_protected_repo_has_no_findings():
+    got = _github_drill({"/repos/o/r/branches/main/protection": _GOOD_PROTECTION})
+    check("nothing to report", sorted(got), [])
+
+
+def test_drill_a_ruleset_protected_branch_is_not_called_unprotected():
+    """Regression: only the classic /protection endpoint was read, so a branch
+    protected by a ruleset got a false HIGH 'no protection rule'."""
+    got = _github_drill({"/repos/o/r/rules/branches/main": [
+        {"type": "pull_request", "parameters": {"required_approving_review_count": 1}},
+        {"type": "required_status_checks",
+         "parameters": {"required_status_checks": [{"context": "carabiner"}]}},
+        {"type": "non_fast_forward"},
+    ]})
+    check("no false 'unprotected'", "DRILL013" in got, False)
+    check("a ruleset-only branch raises nothing else either", sorted(got), [])
+
+
+def test_drill_no_protection_at_all_is_still_reported():
+    got = _github_drill({})
+    check("DRILL013", sorted(got), ["DRILL013"])
+
+
+def test_drill_pr_and_approval_requirements():
+    no_pr = {**_GOOD_PROTECTION}
+    del no_pr["required_pull_request_reviews"]
+    got = _github_drill({"/repos/o/r/branches/main/protection": no_pr})
+    check("no PR required", sorted(got), ["DRILL019"])
+    zero = {**_GOOD_PROTECTION, "required_pull_request_reviews": {"required_approving_review_count": 0}}
+    got = _github_drill({"/repos/o/r/branches/main/protection": zero})
+    check("PR with zero approvals", sorted(got), ["DRILL020"])
+
+
+def test_drill_workflows_that_can_approve_prs():
+    got = _github_drill({"/repos/o/r/branches/main/protection": _GOOD_PROTECTION,
+                         "/repos/o/r/actions/permissions/workflow": {
+                             "default_workflow_permissions": "read",
+                             "can_approve_pull_request_reviews": True}})
+    check("DRILL023", sorted(got), ["DRILL023"])
+    check("is high", got["DRILL023"][0].severity, "high")
+
+
+def test_drill_codeowners_that_does_not_gate():
+    not_required = {**_GOOD_PROTECTION, "required_pull_request_reviews": {
+        "required_approving_review_count": 1, "require_code_owner_reviews": False}}
+    got = _github_drill(
+        {"/repos/o/r/branches/main/protection": not_required,
+         "/repos/o/r/codeowners/errors": {"errors": [
+             {"line": 3, "kind": "Unknown owner", "message": "Unknown owner on line 3: @org/nope"}]}},
+        files={".github/CODEOWNERS": "* @org/security\n/api/ @org/nope\n"})
+    check("both CODEOWNERS findings", sorted(got), ["DRILL021", "DRILL022"])
+    check("names the ignored line", "line 3" in got["DRILL021"][0].snippet, True)
+    got = _github_drill({"/repos/o/r/branches/main/protection": _GOOD_PROTECTION,
+                         "/repos/o/r/codeowners/errors": {"errors": []}},
+                        files={"CODEOWNERS": "* @org/security\n"})
+    check("a valid, enforced CODEOWNERS is fine", sorted(got), [])
+
+
+def test_drill_secret_scanning_off():
+    got = _github_drill({"/repos/o/r/branches/main/protection": _GOOD_PROTECTION,
+                         "/repos/o/r": {"default_branch": "main", "security_and_analysis": {
+                             "secret_scanning": {"status": "disabled"},
+                             "secret_scanning_push_protection": {"status": "enabled"}}}})
+    check("DRILL024", sorted(got), ["DRILL024"])
+
+
 def test_drill_canary_is_not_a_real_credential():
     """The drill plants a key on purpose. It must never be one that works, and
     must never be committable."""
