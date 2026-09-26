@@ -89,7 +89,7 @@ def hook_fires(root: pathlib.Path) -> list[Finding]:
                 exclude.write_text(body.rstrip("\n") + f"\n{canary.name}\n", encoding="utf-8")
         canary.write_text(CANARY, encoding="utf-8")
         r = subprocess.run(["pre-commit", "run", "--files", str(canary)],
-                           cwd=root, capture_output=True, text=True,
+                           cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=180, check=False)
         if r.returncode == 0:
             return [_finding(
@@ -117,7 +117,7 @@ def origin_slug(root: pathlib.Path) -> str | None:
     """
     try:
         r = subprocess.run(["git", "remote", "get-url", "origin"], cwd=root,
-                           capture_output=True, text=True, timeout=20, check=False)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     m = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?\s*$", r.stdout.strip())

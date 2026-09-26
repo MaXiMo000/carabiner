@@ -44,7 +44,7 @@ def supports(binary: str, needle: str) -> bool:
     key = (binary, needle)
     if key not in _HELP_CACHE:
         try:
-            r = subprocess.run([binary, "--help"], capture_output=True, text=True,
+            r = subprocess.run([binary, "--help"], capture_output=True, text=True, encoding="utf-8", errors="replace",
                                timeout=20, check=False)
             _HELP_CACHE[key] = needle in (r.stdout + r.stderr)
         except (OSError, subprocess.SubprocessError):
@@ -69,7 +69,7 @@ def invoke(cmd: list[str], ok_codes: tuple[int, ...], timeout: int = 180):
     the CI threat model.
     """
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
                            check=False)
     except subprocess.TimeoutExpired:
         return "", f"timed out after {timeout}s"
