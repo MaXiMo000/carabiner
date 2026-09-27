@@ -137,9 +137,10 @@ def main(argv: list[str] | None = None) -> int:
                "  carabiner scan     what is new since the baseline       pre-commit, CI\n"
                "  carabiner drill    attack the repo, prove the controls  after init, weekly\n"
                "  carabiner lock     accept what exists today             deliberate debt\n"
-               "  carabiner debt     what we are carrying                 sprint planning",
+               "  carabiner debt     what we are carrying                 sprint planning\n"
+               "  carabiner fix      pin every action to a commit SHA     once, then Dependabot",
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["init", "scan", "drill", "lock", "debt"])
+    ap.add_argument("command", choices=["init", "scan", "drill", "lock", "debt", "fix"])
     ap.add_argument("--root", type=pathlib.Path, default=pathlib.Path("."))
     ap.add_argument("--engine", action="append", dest="engines")
     ap.add_argument("--fail-on", default=None,
@@ -148,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
                          ".carabiner.yml")
     ap.add_argument("--all", action="store_true", dest="full",
                     help="every engine, whole history. CI cadence, not pre-commit.")
-    ap.add_argument("--dry-run", action="store_true", help="init: write nothing")
+    ap.add_argument("--dry-run", action="store_true", help="init, fix: write nothing")
     ap.add_argument("--diff", action="store_true",
                     help="only what this commit touches: staged, unstaged and "
                          "untracked files. The pre-commit path.")
@@ -180,6 +181,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return _init(root, args.dry_run)
+
+    if args.command == "fix":
+        from . import fix
+        return fix.run(root, args.dry_run, args.json)
 
     if args.command == "drill":
         started = time.monotonic()

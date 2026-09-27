@@ -1397,6 +1397,40 @@ def test_secrets_inherit_only_matters_across_a_trust_boundary():
           "CI009" in scan("$/.github/workflows/build.yml"), False)
 
 
+def test_fix_pins_actions_without_touching_anything_else():
+    """Measured on django (59 references) and grafana (226): every CI003
+    gone, each workflow's YAML otherwise identical, SHAs matching GitHub's."""
+    import tempfile
+    from carabiner import fix
+    workflow = (
+        "on: push\r\n"
+        "jobs:\r\n  j:\r\n    runs-on: ubuntu-latest\r\n    steps:\r\n"
+        "      - uses: actions/checkout@v4\r\n"
+        "      - uses: 'someone/tool@main'  # trusted, see ADR-7\r\n"
+        "      - uses: ./local-action\r\n"
+        "      - uses: $/.github/actions/setup\r\n"
+        "      - uses: actions/cache@0123456789abcdef0123456789abcdef01234567  # v4\r\n"
+        "      - uses: gone/away@v1\r\n")
+    shas = {("actions/checkout", "v4"): "a" * 40, ("someone/tool", "main"): "b" * 40}
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / ".github" / "workflows").mkdir(parents=True)
+        wf = root / ".github" / "workflows" / "ci.yml"
+        wf.write_bytes(workflow.encode())
+        resolve = lambda repo, ref: shas.get((repo, ref))
+        changes, unresolved = fix.plan(root, resolve)
+        check("only the tag- and branch-pinned remote actions",
+              [c["uses"] for c in changes], ["actions/checkout@v4", "someone/tool@main"])
+        check("an unresolvable one is reported, not guessed", [u["uses"] for u in unresolved], ["gone/away@v1"])
+        fix.apply(root, changes)
+        text = wf.read_bytes().decode()
+        check("tag kept as a comment for Dependabot", f"actions/checkout@{'a' * 40}  # v4\r\n" in text, True)
+        check("quotes and the old comment survive",
+              f"uses: 'someone/tool@{'b' * 40}'  # main -- trusted, see ADR-7" in text, True)
+        check("CRLF line endings preserved", text.count("\r\n"), workflow.count("\r\n"))
+        check("a second run changes nothing", fix.plan(root, resolve)[0], [])
+
+
 def test_repo_root_actions_are_local():
     """`uses: $/.github/actions/x` -- vite and home-assistant both use it -- is
     an action in this repository. There is nothing to pin."""
@@ -1798,7 +1832,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 72
+    FLOOR = 82
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")
