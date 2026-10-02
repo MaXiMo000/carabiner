@@ -272,6 +272,45 @@ is not a repo that is clean. That rule covers a native engine raising too, not
 just a wrapped one exiting non-zero: one engine's bug is reported and every
 other engine still runs, rather than the whole scan going down with it.
 
+## Accuracy, measured
+
+The CI engine run over the workflows of 40 popular repositories -- pytest,
+black, ruff, uv, click, numpy, pandas, scikit-learn, transformers,
+langchain, react, vue, svelte, next.js, vscode, TypeScript, deno, bun,
+node, express, tokio, axum, ripgrep, bat, rust, go, fzf, gin, prometheus,
+traefik, kubernetes, terraform, compose, rails, laravel, mastodon,
+discourse, spring-boot, elasticsearch, airflow -- and every finding that
+fails a build by default (high and above) read by hand, along with every
+script-injection finding:
+
+| | before | after |
+|---|---|---|
+| high/critical findings | 5 | 2 |
+| of which correct | 2 | 2 |
+| script injection (`CI002`) | 4 | 2 |
+| of which correct | 1 | 2 |
+
+What the review fixed:
+
+- **huggingface/transformers**, three HIGH `CI009`: callers on
+  `workflow_run` of a *schedule-only* workflow were treated as untrusted.
+  A `workflow_run` is now only as untrusted as the workflows it follows --
+  resolved by name in the same repository; one that can't be found stays
+  untrusted.
+- **denoland/deno**, three `CI002`: a `type: choice` input interpolated
+  into `run:`. GitHub rejects a dispatch value outside the options, and
+  `boolean`/`number`/`environment` inputs can't carry shell either. The
+  one real sink beside it -- the free-text `commitHash` -- is still
+  reported, and now named.
+
+The two highs left are discourse's `check-pr-body.yml`: `pull_request_target`
+checking out the PR head with credentials persisted. Real, and already
+reported one level down from critical because a `user.login` guard limits
+it to Dependabot. The remaining findings are mostly `CI005`/`CI004`
+(write-all or default token permissions, 211) and `CI003` (unpinned
+actions; 230 of them informational version tags from GitHub itself) --
+the kind `carabiner fix` and a `permissions:` block clear.
+
 ## Known limits, stated plainly
 
 - The `ci` engine covers GitHub Actions and GitLab CI. Jenkins, CircleCI and
