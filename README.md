@@ -113,6 +113,40 @@ carabiner lock --expires 90   # accept it, but only for 90 days.
 nothing. A security tool that silently rewrites your config has no business
 asking to be trusted.
 
+## Fix the biggest finding in one command
+
+```
+$ carabiner fix --dry-run
+  .github/workflows/ci.yml:12
+    - uses: actions/checkout@v7
+    + uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+  ...
+would pin 59 action reference(s)
+$ carabiner fix
+```
+
+Unpinned actions (`CI003`) are about half of every finding across the
+repositories carabiner has been run on. `carabiner fix` resolves each tag or
+branch to the commit it points at today and pins it, keeping the tag as a
+`# v7` comment -- which is what Dependabot reads to keep bumping a pinned
+action. Nothing that runs changes; it just stops being able to change
+without a diff.
+
+Measured on six well-known repositories: django (59 references pinned),
+grafana (226), rich (12), httpx (4), pydantic and vite (already pinned).
+Every workflow's YAML was otherwise identical afterwards, `CI003` went to
+zero, and the SHAs match what GitHub reports for each tag. Lines are
+rewritten in place, never re-serialised, so comments, quoting and CRLF line
+endings survive; your own repository's actions and local `./`/`$/` actions
+are left alone; a reference that can't be resolved is listed and fails the
+command rather than being guessed. Set `GITHUB_TOKEN` for more than 60
+lookups an hour.
+
+It deliberately does **not** add `permissions:` or `persist-credentials:
+false` for you: either can break a job that pushes, comments or publishes,
+and only someone who knows that job can tell. Those stay findings, with the
+exact change to make.
+
 ## In CI
 
 ```yaml
@@ -122,7 +156,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: MaXiMo000/carabiner@v0.3.1
+  - uses: MaXiMo000/carabiner@v0.4.0
   - uses: github/codeql-action/upload-sarif@v3
     with:
       sarif_file: carabiner.sarif
@@ -156,7 +190,7 @@ hand-checked field names, for the same reason the SARIF output is.
 ## Anywhere else — GitLab CI, Jenkins, CircleCI
 
 ```bash
-docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.3.1 scan --all
+docker run --rm -v "$PWD:/repo:ro" ghcr.io/maximo000/carabiner:0.4.0 scan --all
 ```
 
 The image bundles gitleaks and osv-scanner, runs as a non-root user, pins its
@@ -168,7 +202,7 @@ build-provenance attestation.
 ```yaml
 repos:
   - repo: https://github.com/MaXiMo000/carabiner
-    rev: v0.3.1
+    rev: v0.4.0
     hooks:
       - id: carabiner
 ```
@@ -237,6 +271,45 @@ A missing scanner degrades to an install hint, never a crash. And a scanner that
 is not a repo that is clean. That rule covers a native engine raising too, not
 just a wrapped one exiting non-zero: one engine's bug is reported and every
 other engine still runs, rather than the whole scan going down with it.
+
+## Accuracy, measured
+
+The CI engine run over the workflows of 40 popular repositories -- pytest,
+black, ruff, uv, click, numpy, pandas, scikit-learn, transformers,
+langchain, react, vue, svelte, next.js, vscode, TypeScript, deno, bun,
+node, express, tokio, axum, ripgrep, bat, rust, go, fzf, gin, prometheus,
+traefik, kubernetes, terraform, compose, rails, laravel, mastodon,
+discourse, spring-boot, elasticsearch, airflow -- and every finding that
+fails a build by default (high and above) read by hand, along with every
+script-injection finding:
+
+| | before | after |
+|---|---|---|
+| high/critical findings | 5 | 2 |
+| of which correct | 2 | 2 |
+| script injection (`CI002`) | 4 | 2 |
+| of which correct | 1 | 2 |
+
+What the review fixed:
+
+- **huggingface/transformers**, three HIGH `CI009`: callers on
+  `workflow_run` of a *schedule-only* workflow were treated as untrusted.
+  A `workflow_run` is now only as untrusted as the workflows it follows --
+  resolved by name in the same repository; one that can't be found stays
+  untrusted.
+- **denoland/deno**, three `CI002`: a `type: choice` input interpolated
+  into `run:`. GitHub rejects a dispatch value outside the options, and
+  `boolean`/`number`/`environment` inputs can't carry shell either. The
+  one real sink beside it -- the free-text `commitHash` -- is still
+  reported, and now named.
+
+The two highs left are discourse's `check-pr-body.yml`: `pull_request_target`
+checking out the PR head with credentials persisted. Real, and already
+reported one level down from critical because a `user.login` guard limits
+it to Dependabot. The remaining findings are mostly `CI005`/`CI004`
+(write-all or default token permissions, 211) and `CI003` (unpinned
+actions; 230 of them informational version tags from GitHub itself) --
+the kind `carabiner fix` and a `permissions:` block clear.
 
 ## Known limits, stated plainly
 

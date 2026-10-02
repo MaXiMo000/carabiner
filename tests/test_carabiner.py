@@ -1036,6 +1036,23 @@ def test_injection_rule_distinguishes_attacker_input_from_repo_state():
     dispatch = scan_run('echo "${{ github.event.inputs.ref }}"')
     check("a dispatch input is a real sink", [f.rule for f in dispatch], ["CI002"])
     check("but rated below anonymous input", dispatch[0].severity, "medium")
+    # denoland/deno: a `type: choice` input can only be one of its options.
+    import tempfile
+    from carabiner.engines import ci as C
+    with tempfile.TemporaryDirectory() as tmp:
+        wfs = pathlib.Path(tmp) / ".github" / "workflows"
+        wfs.mkdir(parents=True)
+        (wfs / "w.yml").write_text(
+            "on:\n  workflow_dispatch:\n    inputs:\n"
+            "      kind: {type: choice, options: [patch, minor]}\n"
+            "      sha: {type: string}\n"
+            "permissions: {contents: read}\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n"
+            "      - run: ./release --${{github.event.inputs.kind}}\n"
+            "      - run: ./promote ${{github.event.inputs.kind}} ${{github.event.inputs.sha}}\n",
+            encoding="utf-8")
+        found = [f for f in C.run(pathlib.Path(tmp)) if f.rule == "CI002"]
+        check("a choice input is not injectable; a string one beside it is",
+              [f.snippet for f in found], ["github.event.inputs.sha"])
     # the classic: a pull request title.
     title = scan_run('echo "${{ github.event.pull_request.title }}"')
     check("a PR title is the canonical injection", [f.severity for f in title], ["high"])
@@ -1395,6 +1412,66 @@ def test_secrets_inherit_only_matters_across_a_trust_boundary():
           "CI009" in scan("other-org/repo/.github/workflows/build.yml@main"), True)
     check("`$/` is the repository root, so local too",
           "CI009" in scan("$/.github/workflows/build.yml"), False)
+
+
+def test_workflow_run_is_only_as_untrusted_as_its_upstream():
+    """huggingface/transformers: three `secrets: inherit` callers on
+    workflow_run of a schedule-only workflow came back HIGH. Nobody outside
+    can start a schedule."""
+    import tempfile
+    from carabiner.engines import ci as C
+
+    def severity(upstream_on):
+        with tempfile.TemporaryDirectory() as tmp:
+            wfs = pathlib.Path(tmp) / ".github" / "workflows"
+            wfs.mkdir(parents=True)
+            if upstream_on:
+                (wfs / "up.yml").write_text(f"name: Upstream\non: {upstream_on}\njobs: {{}}\n",
+                                            encoding="utf-8")
+            (wfs / "caller.yml").write_text(
+                "on:\n  workflow_run:\n    workflows: [Upstream]\n    types: [completed]\n"
+                "permissions: {contents: read}\njobs:\n  j:\n"
+                "    uses: other-org/repo/.github/workflows/x.yml@main\n    secrets: inherit\n",
+                encoding="utf-8")
+            return {f.severity for f in C.run(pathlib.Path(tmp)) if f.rule == "CI009"}
+
+    check("after a schedule: not an untrusted trigger", severity("{schedule: [{cron: '0 5 * * *'}]}"), {"medium"})
+    check("after a pull_request workflow: untrusted", severity("pull_request"), {"high"})
+    check("an upstream that cannot be found stays untrusted", severity(None), {"high"})
+
+
+def test_fix_pins_actions_without_touching_anything_else():
+    """Measured on django (59 references) and grafana (226): every CI003
+    gone, each workflow's YAML otherwise identical, SHAs matching GitHub's."""
+    import tempfile
+    from carabiner import fix
+    workflow = (
+        "on: push\r\n"
+        "jobs:\r\n  j:\r\n    runs-on: ubuntu-latest\r\n    steps:\r\n"
+        "      - uses: actions/checkout@v4\r\n"
+        "      - uses: 'someone/tool@main'  # trusted, see ADR-7\r\n"
+        "      - uses: ./local-action\r\n"
+        "      - uses: $/.github/actions/setup\r\n"
+        "      - uses: actions/cache@0123456789abcdef0123456789abcdef01234567  # v4\r\n"
+        "      - uses: gone/away@v1\r\n")
+    shas = {("actions/checkout", "v4"): "a" * 40, ("someone/tool", "main"): "b" * 40}
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / ".github" / "workflows").mkdir(parents=True)
+        wf = root / ".github" / "workflows" / "ci.yml"
+        wf.write_bytes(workflow.encode())
+        resolve = lambda repo, ref: shas.get((repo, ref))
+        changes, unresolved = fix.plan(root, resolve)
+        check("only the tag- and branch-pinned remote actions",
+              [c["uses"] for c in changes], ["actions/checkout@v4", "someone/tool@main"])
+        check("an unresolvable one is reported, not guessed", [u["uses"] for u in unresolved], ["gone/away@v1"])
+        fix.apply(root, changes)
+        text = wf.read_bytes().decode()
+        check("tag kept as a comment for Dependabot", f"actions/checkout@{'a' * 40}  # v4\r\n" in text, True)
+        check("quotes and the old comment survive",
+              f"uses: 'someone/tool@{'b' * 40}'  # main -- trusted, see ADR-7" in text, True)
+        check("CRLF line endings preserved", text.count("\r\n"), workflow.count("\r\n"))
+        check("a second run changes nothing", fix.plan(root, resolve)[0], [])
 
 
 def test_repo_root_actions_are_local():
@@ -1798,7 +1875,7 @@ def main():
     # A floor, not a target. Three separate edits in one session silently
     # deleted whole blocks of tests by replacing a range that spanned them;
     # each time the suite went green with fewer tests and said nothing.
-    FLOOR = 72
+    FLOOR = 83
     if len(tests) < FLOOR:
         raise SystemExit(f"test suite shrank: {len(tests)} < {FLOOR}. "
                          "An edit probably deleted tests -- check git diff.")

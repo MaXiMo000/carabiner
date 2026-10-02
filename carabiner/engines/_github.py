@@ -130,6 +130,21 @@ _INJECTABLE = re.compile(
     "|".join(re.escape(x) for x in _ANON).replace(r"\.", r"\s*\.\s*"), re.I)
 _INJECTABLE_DISPATCH = re.compile(re.escape(_DISPATCH), re.I)
 
+# GitHub rejects a dispatch whose value is not one of a `choice` input's
+# options, and boolean/number/environment inputs cannot carry shell either.
+# denoland/deno interpolates a choice of patch|minor|major three times; all
+# three were reported.
+_CONSTRAINED_INPUTS = {"choice", "boolean", "number", "environment"}
+
+
+def _free_text_input(doc: dict, name: str) -> bool:
+    raw = doc.get("on", doc.get(True))
+    dispatch = raw.get("workflow_dispatch") if isinstance(raw, dict) else None
+    inputs = (dispatch or {}).get("inputs") if isinstance(dispatch, dict) else None
+    spec = (inputs or {}).get(name) if isinstance(inputs, dict) else None
+    # Undeclared, or declared without a constraining type: free text.
+    return not (isinstance(spec, dict) and str(spec.get("type", "")).lower() in _CONSTRAINED_INPUTS)
+
 
 def available(root: pathlib.Path) -> bool:
     return (root / WORKFLOWS).is_dir()
@@ -147,6 +162,45 @@ def _triggers(doc: dict) -> set[str]:
     if isinstance(raw, dict):
         return set(raw)
     return set()
+
+
+# Events whose run carries code or text an outsider controls. A workflow_run
+# is only as trusted as the workflows that can trigger it.
+_OUTSIDER_EVENTS = {"pull_request", "pull_request_target", "pull_request_review",
+                    "pull_request_review_comment", "issue_comment", "issues",
+                    "discussion", "discussion_comment", "fork", "watch"}
+
+
+def _workflow_triggers(root: pathlib.Path) -> dict[str, set[str]]:
+    """{workflow name: its triggers} for every workflow in the repository."""
+    found = {}
+    for wf in (root / WORKFLOWS).glob("*.y*ml"):
+        try:
+            doc = yaml.safe_load(wf.read_text(encoding="utf-8", errors="replace"))
+        except yaml.YAMLError:
+            continue
+        if isinstance(doc, dict):
+            found[str(doc.get("name") or wf.name)] = _triggers(doc)
+    return found
+
+
+def _untrusted_upstream(doc: dict, upstream: dict[str, set[str]]) -> bool:
+    """Can an outsider start any workflow this `workflow_run` follows?
+
+    huggingface/transformers runs three callers on `workflow_run` of a
+    schedule-only workflow; treating them as untrusted made three HIGH
+    findings out of nothing. An upstream that cannot be found here (another
+    file, a typo) stays untrusted: unknown is not safe."""
+    raw = doc.get("on", doc.get(True))
+    spec = raw.get("workflow_run") if isinstance(raw, dict) else None
+    names = spec.get("workflows") if isinstance(spec, dict) else None
+    if not names:
+        return True
+    for name in ([names] if isinstance(names, str) else names):
+        triggers = upstream.get(str(name))
+        if triggers is None or triggers & _OUTSIDER_EVENTS:
+            return True
+    return False
 
 
 def _steps(doc: dict):
@@ -207,6 +261,7 @@ def run(root: pathlib.Path) -> list[Finding]:
     # this repository has no resolvable slug". Retrying that on every step would
     # shell out once per unpinned action.
     own: str | None = _UNRESOLVED
+    upstream_triggers = _workflow_triggers(root)
     for wf in sorted((root / WORKFLOWS).glob("*.y*ml")):
         rel = wf.relative_to(root).as_posix()
         try:
@@ -221,8 +276,8 @@ def run(root: pathlib.Path) -> list[Finding]:
             continue
 
         triggers = _triggers(doc)
-        risky_trigger = "pull_request_target" in triggers or \
-                        "workflow_run" in triggers
+        risky_trigger = "pull_request_target" in triggers or (
+            "workflow_run" in triggers and _untrusted_upstream(doc, upstream_triggers))
 
         # CI001 -- the canonical secret-theft path. pull_request_target runs
         # with repository secrets AND a write token; checking out the PR head
@@ -384,16 +439,15 @@ def run(root: pathlib.Path) -> list[Finding]:
                     fix="pass it through `env:` and reference \"$VAR\" quoted in "
                         "the script; the value is then data, not code",
                     snippet=m.group(0)))
-            elif _INJECTABLE_DISPATCH.search(script):
-                d = _INJECTABLE_DISPATCH.search(script)
+            elif free := [n for n in re.findall(r"github\.event\.inputs\.([A-Za-z0-9_-]+)", script, re.I)
+                          if _free_text_input(doc, n)]:
                 out.append(Finding(
                     "ci", "CI002", "medium", rel,
-                    f"job '{job_name}' interpolates a workflow_dispatch input "
-                    "into a `run:` block -- free-form text, though it takes "
-                    "someone who can already trigger the workflow",
+                    f"job '{job_name}' interpolates the workflow_dispatch input "
+                    f"'{free[0]}' into a `run:` block -- free-form text, though it "
+                    "takes someone who can already trigger the workflow",
                     fix="pass it through `env:` and reference \"$VAR\" quoted",
-                    snippet=script[d.start():script.find("}}", d.start()) + 2
-                                   if "}}" in script[d.start():] else d.start() + 40]))
+                    snippet=f"github.event.inputs.{free[0]}"))
 
             # CI003 -- mutable action references.
             uses = str(step.get("uses", ""))
