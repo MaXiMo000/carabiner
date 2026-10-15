@@ -15,3 +15,9 @@ build/
 
 # macOS writes these into every directory it opens.
 .DS_Store
+
+# Local-only material: notes, plans, assistant config, secrets
+.dev/
+CLAUDE.md
+CLAUDE.local.md
+.claude/

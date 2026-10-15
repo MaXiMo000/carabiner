@@ -1,5 +1,8 @@
 # carabiner
 
+[![ci](https://github.com/MaXiMo000/carabiner/actions/workflows/ci.yml/badge.svg)](https://github.com/MaXiMo000/carabiner/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/carabiner-sec)](https://pypi.org/project/carabiner-sec/)
+
 > A carabiner is the piece of gear that locks the system together and is rated
 > to catch a fall. It is also the only piece you check *before* you need it.
 
@@ -11,6 +14,8 @@ prove the protections actually fire.
 ```bash
 pip install carabiner-sec        # the command it installs is `carabiner`
 ```
+
+<p align="center"><img src="https://raw.githubusercontent.com/MaXiMo000/carabiner/main/docs/demo.svg" alt="carabiner scanning a repo, locking the existing findings as a baseline, then failing only on a new unpinned action" width="100%"></p>
 
 ```
 $ carabiner scan

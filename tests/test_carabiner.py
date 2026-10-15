@@ -889,8 +889,7 @@ def test_docs_do_not_drift_or_recommend_mutable_refs():
 
 
 def test_readme_describes_the_engines_that_exist():
-    """The README claimed 'Phase 0, native engines only' for three phases after
-    that stopped being true."""
+    """Every engine that exists is documented in the README."""
     from carabiner.engines import ALL
     root = pathlib.Path(__file__).resolve().parents[1]
     body = (root / "README.md").read_text(encoding="utf-8")
@@ -1599,8 +1598,8 @@ def test_jenkins_groovy_string_shapes_that_used_to_evade_detection():
     """JEN001 was tested against exactly one shell-step shape: `sh "..."` on
     one line. Real Jenkinsfiles use several others for the identical
     vulnerability, and the original regex -- anchored to a single literal `"`
-    on each end -- missed every one of them. Each positive case here failed
-    before this session's fix; each negative case must keep failing, or the
+    on each end -- missed every one of them. Each positive case here is one
+    of those shapes; each negative case must keep failing, or the
     rule starts firing on ordinary steps that use none of this."""
     import tempfile
     from carabiner.engines import _otherci as O

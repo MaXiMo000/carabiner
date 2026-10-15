@@ -96,10 +96,9 @@ jobs:
         with:
           context: .
           push: true
-          # ponytail: linux/amd64 only. The bundled gitleaks and osv-scanner
-          # binaries are amd64, which is what CI runners are. arm64 needs
-          # TARGETARCH-aware downloads and a second pair of checksums -- add it
-          # when someone asks, not before.
+          # linux/amd64 only. The bundled gitleaks and osv-scanner binaries are
+          # amd64, which is what CI runners are. arm64 needs TARGETARCH-aware
+          # downloads and a second pair of checksums.
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

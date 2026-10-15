@@ -1,6 +1,6 @@
 """Vulnerable dependencies. Wraps osv-scanner.
 
-The plan called for pip-audit, npm audit and osv-scanner. It gets one: osv-scanner
+One scanner, not pip-audit plus npm audit plus osv-scanner: osv-scanner
 reads lockfiles for PyPI, npm, Go, Maven, crates.io, RubyGems and more from the
 same OSV database the others draw from, so shipping three parsers would be three
 times the maintenance for the same findings. Add pip-audit only if someone
