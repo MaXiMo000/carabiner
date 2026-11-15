@@ -124,7 +124,7 @@ def _circle(path: pathlib.Path, rel: str) -> list[Finding]:
             fix="pin the orb to an exact version",
             snippet="@volatile", line=text[:m.start()].count("\n") + 1))
     try:
-        doc = yaml.safe_load(text)
+        yaml.safe_load(text)  # not valid YAML: CircleCI would refuse it too
     except yaml.YAMLError:
         return out
     for m in _CIRCLE_PARAM.finditer(text):

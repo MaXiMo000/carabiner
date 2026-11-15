@@ -426,7 +426,7 @@ def run(root: pathlib.Path) -> list[Finding]:
                 fix="pass named secrets explicitly under `secrets:`",
                 snippet=called))
 
-        for job_name, job, step in _steps(doc):
+        for job_name, _job, step in _steps(doc):
             # CI002 -- script injection. The PR title becomes shell.
             script = str(step.get("run", ""))
             m = _INJECTABLE.search(script)

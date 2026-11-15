@@ -11,6 +11,16 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.16.8
+      - run: ruff check .
+
   test:
     # Windows was listed as untested for long enough. It is the platform where
     # path handling and subprocess invocation break, which is most of what the
@@ -19,9 +29,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         # 3.10 is the floor declared in pyproject; test the floor, not just today.
-        python: ["3.10", "3.13"]
+        python: ["3.10", "3.13", "3.14"]
     steps:
       # CI003: actions pinned to full commit SHAs. A tag is mutable -- whoever
       # controls the action repo can repoint it at new code.
