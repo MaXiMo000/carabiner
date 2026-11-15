@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import pathlib
 import shutil
-import subprocess
 import tempfile
 
 from . import _tool

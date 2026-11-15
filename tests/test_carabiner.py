@@ -228,7 +228,7 @@ def test_drill_canary_leaves_no_foldable_literal_in_compiled_bytecode():
     constant-folded at compile time, so the split protected nothing once the
     module was imported once. Checked directly against the compiled code
     object, not re-asserted by reading the source text again."""
-    import dis, types
+    import types
     src = pathlib.Path(__file__).resolve().parents[1] / "carabiner" / "drill.py"
     code = compile(src.read_text(encoding="utf-8"), str(src), "exec")
 
@@ -773,7 +773,7 @@ def test_drill_cleans_up_even_when_the_hook_fails():
 def test_accepted_debt_can_expire():
     """Without a deadline, 'accepted' quietly means 'forever' -- which is how a
     baseline becomes the place debt goes to be forgotten."""
-    import shutil, tempfile
+    import tempfile
     from datetime import date, timedelta
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
@@ -1036,7 +1036,6 @@ def test_injection_rule_distinguishes_attacker_input_from_repo_state():
     check("a dispatch input is a real sink", [f.rule for f in dispatch], ["CI002"])
     check("but rated below anonymous input", dispatch[0].severity, "medium")
     # denoland/deno: a `type: choice` input can only be one of its options.
-    import tempfile
     from carabiner.engines import ci as C
     with tempfile.TemporaryDirectory() as tmp:
         wfs = pathlib.Path(tmp) / ".github" / "workflows"

@@ -126,13 +126,13 @@ def origin_slug(root: pathlib.Path) -> str | None:
 
 def _get(path: str, token: str):
     """-> (payload, error). Never raises; an unreachable API is 'unverified'."""
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310 - fixed https API
         f"{API}{path}",
         headers={"Authorization": f"Bearer {token}",
                  "Accept": "application/vnd.github+json",
                  "User-Agent": "carabiner"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
             return json.loads(resp.read().decode()), None
     except urllib.error.HTTPError as e:
         return None, f"HTTP {e.code}"

@@ -106,13 +106,13 @@ def _init(root: pathlib.Path, dry_run: bool) -> int:
 
     print(f"\nwould write {config.CONFIG_NAME}:" if dry_run
           else f"\nwriting {config.CONFIG_NAME}:")
-    print("".join(f"  | {l}\n" for l in body.splitlines()))
+    print("".join(f"  | {line}\n" for line in body.splitlines()))
 
     findings = _collect(root, None, full=True)
     print(f"first scan: {len(findings)} findings")
 
     if dry_run:
-        print(f"\n--dry-run: nothing written. Drop the flag to adopt.")
+        print("\n--dry-run: nothing written. Drop the flag to adopt.")
         return 0
 
     if cfg_path.exists():
@@ -233,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "debt":
         gone = baseline.fixed(findings, accepted_map)
         overdue = 0
-        for fp, e in sorted(accepted_map.items(),
+        for _fp, e in sorted(accepted_map.items(),
                             key=lambda kv: -rank(kv[1]["severity"])):
             late = baseline.expired(e)
             overdue += late
